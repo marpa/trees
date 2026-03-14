@@ -397,6 +397,7 @@ const state = {
   growSpeed: 1.0,
   growthTime: 0,
   pruneMode: false,
+  showLeaves: true,
   ...structuredClone(PRESETS.Oak),
 };
 let selectedBranches = [];
@@ -534,6 +535,7 @@ function rebuildLeaves(){
   const rng2 = new RNG(state.seed + 7777);
   const geo = buildLeaves(root, state, rng2);
   leafPoints = new THREE.Points(geo, leafMat);
+  leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
 }
 
@@ -600,7 +602,7 @@ canvas.addEventListener('click', e => {
   const branchHits = raycaster.intersectObjects(meshes);
 
   let leafHits = [];
-  if(leafPoints){
+  if(leafPoints && state.showLeaves){
     raycaster.params.Points.threshold = 0.15;
     leafHits = raycaster.intersectObject(leafPoints);
   }
@@ -747,6 +749,7 @@ function rebuild(){
   const rng2 = new RNG(state.seed + 7777);
   const leafGeo = buildLeaves(root, state, rng2);
   leafPoints = new THREE.Points(leafGeo, leafMat);
+  leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
 
   controls.target.set(0, state.trunkLen * 1.2, 0);
@@ -794,6 +797,9 @@ gui.add(state,'pruneMode').name('Prune Mode').onChange(v => {
     clearLeafSel();
     clearBranchSel();
   }
+});
+gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
+  if(leafPoints) leafPoints.visible = v;
 });
 
 gui.add({ newSeed(){ state.seed=Math.floor(Math.random()*99999); rebuild(); }}, 'newSeed').name('New Seed');
