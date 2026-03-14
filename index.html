@@ -301,7 +301,10 @@ function buildLeaves(root, params, rng){
   const maxGrow = params.maxDepth * .5 + .8;
 
   function visit(node){
-    if(node.depth >= params.maxDepth - 1 && !node.pruned){
+    if(node.pruned) return;
+    const living = node.children.filter(c => !c.pruned);
+    const isTerminal = living.length === 0;
+    if(node.depth >= params.maxDepth - 1 || isTerminal){
       const nd = Math.floor(rng.range(3, params.leafDen+1));
       for(let i=0;i<nd;i++){
         const t = rng.range(.2, 1.1);
@@ -320,7 +323,7 @@ function buildLeaves(root, params, rng){
         owners.push(node);
       }
     }
-    for(const c of node.children) visit(c);
+    for(const c of living) visit(c);
   }
   visit(root);
 
@@ -537,6 +540,7 @@ function rebuildLeaves(){
   leafPoints = new THREE.Points(geo, leafMat);
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
+  if(leafMat) leafMat.uniforms.uReveal.value = 1.0;
 }
 
 let _selLeaf = -1;
@@ -720,6 +724,7 @@ window.addEventListener('keydown', e => {
       b.mesh.position.copy(b.start);
     }
   }
+  rebuildLeaves();
 });
 
 /* ───────── rebuild ───────── */
@@ -799,6 +804,7 @@ gui.add(state,'pruneMode').name('Prune Mode').onChange(v => {
   }
 });
 gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
+  if(v) rebuildLeaves();
   if(leafPoints) leafPoints.visible = v;
 });
 
