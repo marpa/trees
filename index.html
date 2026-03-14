@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painterly Tree</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #d4c4a8; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #pruneHint {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(60,40,20,0.8); color: #f0e6d2; padding: 10px 20px;
+      border-radius: 20px; font: 14px/1.4 Georgia, serif;
+      display: none; pointer-events: none; text-align: center;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="pruneHint">Click a branch to select it &middot; click again to prune</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/dist/lil-gui.esm.min.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import GUI from 'lil-gui';
+
+/* ───────── PRNG ───────── */
+
+function mulberry32(s) {
+  return () => {
+    s |= 0; s = s + 0x6D2B79F5 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+class RNG {
+  constructor(seed) { this._next = mulberry32(seed); }
+  random() { return this._next(); }
+  range(a, b) { return a + this.random() * (b - a); }
+  randInt(a, b) { return Math.floor(this.range(a, b + 0.999)); }
+}
+
+/* ───────── constants ───────── */
+
+const UP = new THREE.Vector3(0, 1, 0);
+const DEG = Math.PI / 180;
+const clamp01 = v => Math.max(0, Math.min(1, v));
+const easeOut = t => 1 - (1 - t) * (1 - t);
+
+/* ───────── species presets ───────── */
+
+const PRESETS = {
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.55, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A7C3F' },
+  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.30, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27' },
+  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.28, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A' },
+  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.45, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30' },
+  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.60, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40' },
+};
+
+/* ───────── shaders ───────── */
+
+const branchVert = /* glsl */`
+varying vec3 vNormal, vWorldPos;
+varying vec2 vUv;
+void main(){
+  vUv = uv;
+  vNormal = normalize(normalMatrix * normal);
+  vec4 wp = modelMatrix * vec4(position,1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const branchFrag = /* glsl */`
+uniform vec3 uBase, uTip;
+varying vec3 vNormal, vWorldPos;
+varying vec2 vUv;
+
+float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+
+void main(){
+  vec3 col = mix(uBase, uTip, vUv.y);
+  col += (hash(vWorldPos*6.0)-.5)*.12;
+
+  col = pow(col, vec3(.45));
+
+  vec3 ld = normalize(vec3(.5,1.,.3));
+  float diff = max(dot(vNormal,ld),0.)*.4+.65;
+  diff = floor(diff*4.)/4.*.25 + diff*.75;
+
+  vec3 vd = normalize(cameraPosition - vWorldPos);
+  float rim = 1.-max(dot(vNormal,vd),0.);
+  col *= 1.-rim*.12;
+
+  gl_FragColor = vec4(col*diff, 1.);
+}`;
+
+const leafVert = /* glsl */`
+attribute float aGrowEnd;
+attribute float aSize;
+attribute float aRot;
+uniform float uReveal;
+varying float vAlpha;
+varying vec3 vCol;
+varying float vRot;
+void main(){
+  vCol = pow(color, vec3(.45));
+  vRot = aRot;
+  float t = smoothstep(aGrowEnd-.08, aGrowEnd+.05, uReveal);
+  vAlpha = t;
+  vec4 mv = modelViewMatrix * vec4(position,1.);
+  gl_PointSize = aSize * t * (250./-mv.z);
+  gl_Position = projectionMatrix * mv;
+  if(t<.01) gl_Position = vec4(9999.);
+}`;
+
+const leafFrag = /* glsl */`
+uniform sampler2D uMap;
+varying float vAlpha;
+varying vec3 vCol;
+varying float vRot;
+void main(){
+  vec2 uv = gl_PointCoord - .5;
+  float cs = cos(vRot), sn = sin(vRot);
+  uv = vec2(uv.x*cs - uv.y*sn, uv.x*sn + uv.y*cs) + .5;
+  vec4 tex = texture2D(uMap, uv);
+  float a = tex.a * vAlpha;
+  if(a < .12) discard;
+  vec3 col = vCol * (.85 + tex.r * .15);
+  gl_FragColor = vec4(col, a * .92);
+}`;
+
+const postVert = /* glsl */`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`;
+
+const postFrag = /* glsl */`
+uniform sampler2D tDiffuse;
+uniform float uTime;
+varying vec2 vUv;
+float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
+void main(){
+  vec4 col = texture2D(tDiffuse, vUv);
+  col.rgb += (rand(vUv*800.+uTime*.3)-.5)*.06;
+  vec2 q = vUv-.5;
+  col.rgb *= 1.-dot(q,q)*.4;
+  gl_FragColor = col;
+}`;
+
+/* ───────── leaf texture ───────── */
+
+function makeLeafTex(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0,0,64,64);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(32, 2);
+  ctx.bezierCurveTo(48, 12, 58, 30, 32, 60);
+  ctx.bezierCurveTo(6, 30, 16, 12, 32, 2);
+  ctx.fill();
+
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = .8;
+  for(let i = 1; i < 5; i++){
+    const y = 10 + i * 10;
+    ctx.beginPath();
+    ctx.moveTo(32, y);
+    ctx.quadraticCurveTo(32 + i * 4, y + 4, 32 + i * 6, y - 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(32, y);
+    ctx.quadraticCurveTo(32 - i * 4, y + 4, 32 - i * 6, y - 2);
+    ctx.stroke();
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(32, 6);
+  ctx.lineTo(32, 56);
+  ctx.stroke();
+
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+}
+
+/* ───────── tree data ───────── */
+
+let nodeId = 0;
+
+function generateTree(p, rng){
+  const MAX_NODES = 600;
+  let count = 0;
+
+  function makeNode(start, dir, len, rad, depth){
+    if(count >= MAX_NODES) return null;
+    count++;
+    const node = {
+      id: nodeId++,
+      start: start.clone(),
+      dir: dir.clone().normalize(),
+      len, rad, depth,
+      end: start.clone().addScaledVector(dir, len),
+      children: [],
+      parent: null,
+      pruned: false,
+      mesh: null,
+      growStart: depth * .5,
+    };
+    if(depth < p.maxDepth && count < MAX_NODES){
+      const n = rng.randInt(p.minBr, p.maxBr);
+      for(let i = 0; i < n && count < MAX_NODES; i++){
+        const ang = rng.range(p.minAng, p.maxAng) * DEG;
+        const roll = rng.range(0, Math.PI * 2);
+        const perp = new THREE.Vector3();
+        if(Math.abs(dir.y) < .99) perp.crossVectors(dir, UP).normalize();
+        else perp.crossVectors(dir, new THREE.Vector3(1,0,0)).normalize();
+        perp.applyAxisAngle(dir, roll);
+        const cDir = dir.clone().applyAxisAngle(perp, ang);
+        cDir.y -= p.droop * (depth + 1) * .08;
+        cDir.normalize();
+        const cLen = len * p.lenRatio * rng.range(.8, 1.2);
+        const cRad = rad * p.taper;
+        const child = makeNode(node.end, cDir, cLen, cRad, depth+1);
+        if(child){ child.parent = node; node.children.push(child); }
+      }
+    }
+    return node;
+  }
+  return makeNode(new THREE.Vector3(0,0,0), UP, p.trunkLen, p.trunkRad, 0);
+}
+
+function collectBFS(root){
+  const out = [], q = [root];
+  while(q.length){ const n=q.shift(); out.push(n); for(const c of n.children) q.push(c); }
+  return out;
+}
+
+/* ───────── mesh building ───────── */
+
+function buildBranches(root, material, group){
+  const all = collectBFS(root);
+  for(const n of all){
+    const topRad = n.rad * .7;
+    const g = new THREE.CylinderGeometry(topRad, n.rad, n.len, 7, 1, false);
+    g.translate(0, n.len/2, 0);
+    const m = new THREE.Mesh(g, material);
+    const q = new THREE.Quaternion().setFromUnitVectors(UP, n.dir);
+    m.quaternion.copy(q);
+    m.position.copy(n.start);
+    m.userData.node = n;
+    n.mesh = m;
+    group.add(m);
+  }
+  return all;
+}
+
+function buildLeaves(root, params, rng){
+  const positions=[], colors=[], growEnds=[], sizes=[], rots=[];
+  const lc = new THREE.Color(params.leafCol);
+  const maxGrow = params.maxDepth * .5 + .8;
+
+  function visit(node){
+    if(node.depth >= params.maxDepth - 1 && !node.pruned){
+      const nd = Math.floor(rng.range(3, params.leafDen+1));
+      for(let i=0;i<nd;i++){
+        const t = rng.range(.2, 1.1);
+        const p = node.start.clone().lerp(node.end, Math.min(t,1));
+        p.x += rng.range(-.4,.4);
+        p.y += rng.range(-.2,.4);
+        p.z += rng.range(-.4,.4);
+        positions.push(p.x,p.y,p.z);
+        const r=Math.max(0,lc.r+rng.range(-.08,.08));
+        const g=Math.max(0,lc.g+rng.range(-.1,.1));
+        const b=Math.max(0,lc.b+rng.range(-.06,.06));
+        colors.push(r,g,b);
+        growEnds.push((node.growStart + .8) / (maxGrow*1.1) + rng.range(0,.08));
+        sizes.push(rng.range(params.leafSz*8, params.leafSz*18));
+        rots.push(rng.range(0, Math.PI*2));
+      }
+    }
+    for(const c of node.children) visit(c);
+  }
+  visit(root);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+  geo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(growEnds,1));
+  geo.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes,1));
+  geo.setAttribute('aRot', new THREE.Float32BufferAttribute(rots,1));
+  return geo;
+}
+
+/* ───────── scene ───────── */
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color('#d8cfbb');
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, .1, 100);
+camera.position.set(10, 6, 10);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 3.5, 0);
+controls.enableDamping = true;
+controls.dampingFactor = .08;
+controls.maxPolarAngle = Math.PI * .48;
+controls.update();
+
+scene.add(new THREE.AmbientLight(0xfff5e6, .75));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.0);
+sun.position.set(5, 10, 3);
+scene.add(sun);
+
+const groundGeo = new THREE.CircleGeometry(4, 48);
+groundGeo.rotateX(-Math.PI/2);
+const groundMat = new THREE.MeshStandardMaterial({ color: '#b8a888', roughness:1, transparent:true, opacity:.35 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.position.y = -.01;
+scene.add(ground);
+
+/* ───────── post processing ───────── */
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+
+const postShader = {
+  uniforms: { tDiffuse:{value:null}, uTime:{value:0} },
+  vertexShader: postVert,
+  fragmentShader: postFrag,
+};
+const postPass = new ShaderPass(postShader);
+composer.addPass(postPass);
+
+/* ───────── state ───────── */
+
+const treeGroup = new THREE.Group();
+scene.add(treeGroup);
+
+let allNodes = [];
+let root = null;
+let leafPoints = null;
+
+const state = {
+  species: 'Oak',
+  seed: Math.floor(Math.random()*99999),
+  playing: true,
+  growSpeed: 1.0,
+  growthTime: 0,
+  pruneMode: false,
+  selectedNode: null,
+  ...structuredClone(PRESETS.Oak),
+};
+
+let branchMat = null;
+let leafMat = null;
+let highlightMat = null;
+const leafTex = makeLeafTex();
+
+function makeBranchMat(base, tip){
+  return new THREE.ShaderMaterial({
+    uniforms:{ uBase:{value:new THREE.Color(base)}, uTip:{value:new THREE.Color(tip)} },
+    vertexShader: branchVert, fragmentShader: branchFrag,
+  });
+}
+
+function makeLeafMat(){
+  return new THREE.ShaderMaterial({
+    uniforms:{ uReveal:{value:0}, uMap:{value:leafTex} },
+    vertexShader: leafVert, fragmentShader: leafFrag,
+    vertexColors: true, transparent: true, depthWrite: false,
+  });
+}
+
+highlightMat = new THREE.MeshStandardMaterial({ color:'#ff6633', emissive:'#ff3300', emissiveIntensity:.4 });
+
+/* ───────── growth ───────── */
+
+function updateGrowth(dt){
+  if(!root || !state.playing) return;
+  state.growthTime += dt * state.growSpeed;
+
+  const gd = .8;
+  for(const node of allNodes){
+    if(node.pruned || !node.mesh) continue;
+    const raw = clamp01((state.growthTime - node.growStart) / gd);
+    const p = easeOut(raw);
+    const start = node.parent ? node.parent._curEnd : node.start;
+    node._curEnd = start.clone().addScaledVector(node.dir, node.len * p);
+    node.mesh.position.copy(start);
+    node.mesh.scale.y = Math.max(p, .001);
+    node.mesh.visible = p > .001;
+  }
+
+  if(leafMat){
+    const maxGrow = state.maxDepth * .5 + .8;
+    leafMat.uniforms.uReveal.value = clamp01(state.growthTime / (maxGrow * 1.1));
+  }
+}
+
+/* ───────── pruning ───────── */
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const pruneHint = document.getElementById('pruneHint');
+const fallingDebris = [];
+
+function getSubtree(node){
+  const out = [node];
+  const q = [...node.children];
+  while(q.length){ const n=q.shift(); out.push(n); q.push(...n.children); }
+  return out;
+}
+
+function pruneSelected(){
+  const sel = state.selectedNode;
+  if(!sel || !sel.parent) return;
+  const sub = getSubtree(sel);
+
+  for(const n of sub){
+    n.pruned = true;
+    if(n.mesh){
+      const worldPos = new THREE.Vector3();
+      n.mesh.getWorldPosition(worldPos);
+      treeGroup.remove(n.mesh);
+      scene.add(n.mesh);
+      n.mesh.position.copy(worldPos);
+      fallingDebris.push({
+        mesh: n.mesh,
+        vel: new THREE.Vector3((Math.random()-.5)*.5, .5, (Math.random()-.5)*.5),
+        rot: new THREE.Vector3((Math.random()-.5)*2, (Math.random()-.5)*2, 0),
+        life: 2.0,
+      });
+    }
+  }
+
+  sel.parent.children = sel.parent.children.filter(c => c !== sel);
+  state.selectedNode = null;
+
+  setTimeout(() => scheduleRegrowth(sel.parent), 800);
+  rebuildLeaves();
+}
+
+function scheduleRegrowth(parent){
+  if(parent.pruned || parent.depth >= state.maxDepth) return;
+  const rng = new RNG(state.seed + parent.id + Date.now());
+  const count = rng.randInt(1, 2);
+  for(let i = 0; i < count; i++){
+    const ang = rng.range(state.minAng, state.maxAng) * DEG;
+    const roll = rng.range(0, Math.PI*2);
+    const perp = new THREE.Vector3();
+    if(Math.abs(parent.dir.y)<.99) perp.crossVectors(parent.dir, UP).normalize();
+    else perp.crossVectors(parent.dir, new THREE.Vector3(1,0,0)).normalize();
+    perp.applyAxisAngle(parent.dir, roll);
+    const cDir = parent.dir.clone().applyAxisAngle(perp, ang);
+    cDir.y -= state.droop * (parent.depth+1) * .08;
+    cDir.normalize();
+    const cLen = parent.len * state.lenRatio * rng.range(.8,1.2);
+    const cRad = parent.rad * state.taper;
+
+    const child = {
+      id: nodeId++, start: parent.end.clone(), dir: cDir, len: cLen, rad: cRad,
+      depth: parent.depth+1, end: parent.end.clone().addScaledVector(cDir, cLen),
+      children:[], parent, pruned:false, mesh:null,
+      growStart: state.growthTime, _curEnd: parent.end.clone(),
+    };
+    parent.children.push(child);
+    allNodes.push(child);
+
+    const g = new THREE.CylinderGeometry(cRad*.7, cRad, cLen, 7, 1, false);
+    g.translate(0, cLen/2, 0);
+    const m = new THREE.Mesh(g, branchMat);
+    m.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(UP, cDir));
+    m.position.copy(parent._curEnd || parent.end);
+    m.userData.node = child;
+    child.mesh = m;
+    m.scale.y = .001;
+    treeGroup.add(m);
+  }
+  rebuildLeaves();
+}
+
+function rebuildLeaves(){
+  if(leafPoints){ treeGroup.remove(leafPoints); leafPoints.geometry.dispose(); }
+  const rng2 = new RNG(state.seed + 7777);
+  const geo = buildLeaves(root, state, rng2);
+  leafPoints = new THREE.Points(geo, leafMat);
+  treeGroup.add(leafPoints);
+}
+
+canvas.addEventListener('click', e => {
+  if(!state.pruneMode) return;
+  mouse.x = (e.clientX/innerWidth)*2-1;
+  mouse.y = -(e.clientY/innerHeight)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+
+  const meshes = allNodes.filter(n=>n.mesh&&!n.pruned).map(n=>n.mesh);
+  const hits = raycaster.intersectObjects(meshes);
+  if(!hits.length){
+    if(state.selectedNode && state.selectedNode.mesh) state.selectedNode.mesh.material = branchMat;
+    state.selectedNode = null;
+    return;
+  }
+  const hitNode = hits[0].object.userData.node;
+  if(state.selectedNode === hitNode){
+    pruneSelected();
+  } else {
+    if(state.selectedNode && state.selectedNode.mesh) state.selectedNode.mesh.material = branchMat;
+    state.selectedNode = hitNode;
+    hitNode.mesh.material = highlightMat;
+  }
+});
+
+/* ───────── rebuild ───────── */
+
+function rebuild(){
+  while(treeGroup.children.length){
+    const c = treeGroup.children[0];
+    treeGroup.remove(c);
+    if(c.geometry) c.geometry.dispose();
+  }
+  fallingDebris.length = 0;
+  state.selectedNode = null;
+  state.growthTime = 0;
+  state.playing = true;
+  nodeId = 0;
+
+  branchMat = makeBranchMat(state.trunkCol, state.tipCol);
+  leafMat = makeLeafMat();
+
+  const rng = new RNG(state.seed);
+  root = generateTree(state, rng);
+  allNodes = collectBFS(root);
+  allNodes.forEach(n => { n._curEnd = n.start.clone(); });
+
+  buildBranches(root, branchMat, treeGroup);
+
+  const rng2 = new RNG(state.seed + 7777);
+  const leafGeo = buildLeaves(root, state, rng2);
+  leafPoints = new THREE.Points(leafGeo, leafMat);
+  treeGroup.add(leafPoints);
+
+  controls.target.set(0, state.trunkLen * 1.2, 0);
+}
+
+/* ───────── GUI ───────── */
+
+const gui = new GUI({ title: 'Painterly Tree' });
+
+const specObj = { species: state.species };
+gui.add(specObj, 'species', Object.keys(PRESETS)).name('Species').onChange(v => {
+  Object.assign(state, structuredClone(PRESETS[v]));
+  state.species = v;
+  rebuild();
+  refreshGUI();
+});
+
+const fGrow = gui.addFolder('Growth');
+fGrow.add(state, 'growSpeed', .1, 3, .1).name('Speed');
+fGrow.add({ play(){ state.playing = !state.playing; } }, 'play').name('Play / Pause');
+fGrow.add({ regrow(){ state.growthTime=0; state.playing=true; } }, 'regrow').name('Regrow');
+
+const fStruct = gui.addFolder('Structure');
+const structCtrls = [];
+structCtrls.push(fStruct.add(state,'maxDepth',3,8,1).name('Depth'));
+structCtrls.push(fStruct.add(state,'minBr',1,4,1).name('Min Branches'));
+structCtrls.push(fStruct.add(state,'maxBr',2,5,1).name('Max Branches'));
+structCtrls.push(fStruct.add(state,'minAng',5,60,1).name('Min Angle'));
+structCtrls.push(fStruct.add(state,'maxAng',15,90,1).name('Max Angle'));
+structCtrls.push(fStruct.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
+structCtrls.push(fStruct.add(state,'droop',0,1,.01).name('Droop'));
+structCtrls.forEach(c => c.onChange(() => rebuild()));
+fStruct.close();
+
+const fStyle = gui.addFolder('Style');
+fStyle.addColor(state,'trunkCol').name('Trunk').onChange(()=>rebuild());
+fStyle.addColor(state,'leafCol').name('Leaves').onChange(()=>rebuildLeaves());
+fStyle.add(state,'leafDen',2,25,1).name('Leaf Density').onChange(()=>rebuildLeaves());
+fStyle.add(state,'leafSz',.1,1,.05).name('Leaf Size').onChange(()=>rebuildLeaves());
+fStyle.close();
+
+gui.add(state,'pruneMode').name('Prune Mode').onChange(v => {
+  pruneHint.style.display = v ? 'block' : 'none';
+  if(!v && state.selectedNode && state.selectedNode.mesh){
+    state.selectedNode.mesh.material = branchMat;
+    state.selectedNode = null;
+  }
+});
+
+gui.add({ newSeed(){ state.seed=Math.floor(Math.random()*99999); rebuild(); }}, 'newSeed').name('New Seed');
+
+function refreshGUI(){ gui.controllersRecursive().forEach(c => c.updateDisplay()); }
+
+/* ───────── animate ───────── */
+
+const clock = new THREE.Clock();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), .05);
+  controls.update();
+  updateGrowth(dt);
+  postShader.uniforms.uTime.value = clock.elapsedTime;
+
+  for(let i = fallingDebris.length-1; i>=0; i--){
+    const d = fallingDebris[i];
+    d.vel.y -= 9.8 * dt;
+    d.mesh.position.addScaledVector(d.vel, dt);
+    d.mesh.rotation.x += d.rot.x * dt;
+    d.mesh.rotation.z += d.rot.z * dt;
+    d.life -= dt;
+    d.mesh.material.opacity = Math.max(d.life/.5, 0);
+    d.mesh.material.transparent = true;
+    if(d.life <= 0){
+      scene.remove(d.mesh);
+      d.mesh.geometry.dispose();
+      fallingDebris.splice(i,1);
+    }
+  }
+
+  composer.render();
+}
+
+/* ───────── resize ───────── */
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+
+/* ───────── go ───────── */
+
+rebuild();
+animate();
+
+</script>
+</body>
+</html>
