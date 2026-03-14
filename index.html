@@ -255,22 +255,23 @@ function collectBFS(root){
 /* ───────── mesh building ───────── */
 
 function makeBentBranchGeo(len, botRad, topRad, seed){
-  const hSegs = 6;
+  const hSegs = 8;
   const g = new THREE.CylinderGeometry(topRad, botRad, len, 7, hSegs, false);
   g.translate(0, len/2, 0);
 
   const rng = new RNG(seed);
-  const amt = len * rng.range(.04, .14);
-  const ang = rng.range(0, Math.PI * 2);
-  const bx = Math.cos(ang) * amt;
-  const bz = Math.sin(ang) * amt;
+  const a1 = len * rng.range(.04, .14);
+  const d1 = rng.range(0, Math.PI * 2);
+  const a2 = len * rng.range(.03, .10);
+  const d2 = rng.range(0, Math.PI * 2);
 
   const pos = g.getAttribute('position');
   for(let i = 0; i < pos.count; i++){
     const t = clamp01(pos.getY(i) / len);
-    const w = Math.sin(t * Math.PI);
-    pos.setX(i, pos.getX(i) + w * bx);
-    pos.setZ(i, pos.getZ(i) + w * bz);
+    const w1 = Math.sin(t * Math.PI);
+    const w2 = Math.sin(t * 2 * Math.PI);
+    pos.setX(i, pos.getX(i) + w1 * Math.cos(d1) * a1 + w2 * Math.cos(d2) * a2);
+    pos.setZ(i, pos.getZ(i) + w1 * Math.sin(d1) * a1 + w2 * Math.sin(d2) * a2);
   }
   pos.needsUpdate = true;
   g.computeVertexNormals();
