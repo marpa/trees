@@ -18,7 +18,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="pruneHint">Click a branch or leaf to select &middot; press Delete to prune</div>
+<div id="pruneHint">Click to select &middot; Shift+click to extend selection along chain &middot; Arrow keys to bend &middot; Delete to prune</div>
 <script type="importmap">
 {
   "imports": {
@@ -397,9 +397,9 @@ const state = {
   growSpeed: 1.0,
   growthTime: 0,
   pruneMode: false,
-  selectedNode: null,
   ...structuredClone(PRESETS.Oak),
 };
+let selectedBranches = [];
 
 let branchMat = null;
 let leafMat = null;
@@ -462,8 +462,9 @@ function getSubtree(node){
 }
 
 function pruneSelected(){
-  const sel = state.selectedNode;
-  if(!sel || !sel.parent) return;
+  if(!selectedBranches.length) return;
+  const sel = selectedBranches[0];
+  if(!sel.parent) return;
   const sub = getSubtree(sel);
 
   for(const n of sub){
@@ -484,7 +485,7 @@ function pruneSelected(){
   }
 
   sel.parent.children = sel.parent.children.filter(c => c !== sel);
-  state.selectedNode = null;
+  selectedBranches = [];
 
   rebuildLeaves();
 }
@@ -551,10 +552,10 @@ function clearLeafSel(){
 }
 
 function clearBranchSel(){
-  if(state.selectedNode && state.selectedNode.mesh){
-    state.selectedNode.mesh.material = branchMat;
+  for(const n of selectedBranches){
+    if(n.mesh) n.mesh.material = branchMat;
   }
-  state.selectedNode = null;
+  selectedBranches = [];
 }
 
 function dropSelectedLeaf(){
@@ -623,10 +624,28 @@ canvas.addEventListener('click', e => {
   if(branchHits.length){
     clearLeafSel();
     const hitNode = branchHits[0].object.userData.node;
-    if(state.selectedNode === hitNode){ clearBranchSel(); return; }
-    clearBranchSel();
-    state.selectedNode = hitNode;
-    hitNode.mesh.material = highlightMat;
+
+    if(e.shiftKey && selectedBranches.length > 0){
+      if(selectedBranches.includes(hitNode)){
+        return;
+      }
+      const last = selectedBranches[selectedBranches.length - 1];
+      const first = selectedBranches[0];
+      if(last.children.includes(hitNode)){
+        selectedBranches.push(hitNode);
+        hitNode.mesh.material = highlightMat;
+      } else if(hitNode.children.includes(first)){
+        selectedBranches.unshift(hitNode);
+        hitNode.mesh.material = highlightMat;
+      }
+    } else {
+      if(selectedBranches.length === 1 && selectedBranches[0] === hitNode){
+        clearBranchSel(); return;
+      }
+      clearBranchSel();
+      selectedBranches = [hitNode];
+      hitNode.mesh.material = highlightMat;
+    }
     return;
   }
 
@@ -639,25 +658,27 @@ window.addEventListener('keydown', e => {
 
   if(e.key === 'Delete' || e.key === 'Backspace'){
     if(_selLeaf >= 0){ dropSelectedLeaf(); return; }
-    if(state.selectedNode){ pruneSelected(); return; }
+    if(selectedBranches.length){ pruneSelected(); return; }
     return;
   }
 
-  const n = state.selectedNode;
-  if(!n || !n.mesh) return;
-  const arrows = { ArrowLeft:-1, ArrowRight:1, ArrowUp:-1, ArrowDown:1 };
-  if(!(e.key in arrows)) return;
+  if(!selectedBranches.length) return;
+  const arrows = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+  if(!arrows.includes(e.key)) return;
   e.preventDefault();
 
-  const step = n.len * 0.06;
-  if(e.key === 'ArrowLeft')  n.bendX -= step;
-  if(e.key === 'ArrowRight') n.bendX += step;
-  if(e.key === 'ArrowUp')    n.bendZ -= step;
-  if(e.key === 'ArrowDown')  n.bendZ += step;
+  for(const n of selectedBranches){
+    if(!n.mesh) continue;
+    const step = n.len * 0.06;
+    if(e.key === 'ArrowLeft')  n.bendX -= step;
+    if(e.key === 'ArrowRight') n.bendX += step;
+    if(e.key === 'ArrowUp')    n.bendZ -= step;
+    if(e.key === 'ArrowDown')  n.bendZ += step;
 
-  const oldGeo = n.mesh.geometry;
-  n.mesh.geometry = makeBentBranchGeo(n.len, n.rad, n.rad*.7, n.id*137+42, n.bendX, n.bendZ);
-  oldGeo.dispose();
+    const oldGeo = n.mesh.geometry;
+    n.mesh.geometry = makeBentBranchGeo(n.len, n.rad, n.rad*.7, n.id*137+42, n.bendX, n.bendZ);
+    oldGeo.dispose();
+  }
 });
 
 /* ───────── rebuild ───────── */
@@ -669,7 +690,7 @@ function rebuild(){
     if(c.geometry) c.geometry.dispose();
   }
   fallingDebris.length = 0;
-  state.selectedNode = null;
+  selectedBranches = [];
   state.growthTime = 0;
   state.playing = true;
   nodeId = 0;
