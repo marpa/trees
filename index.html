@@ -222,6 +222,7 @@ function generateTree(p, rng){
       pruned: false,
       mesh: null,
       growStart: depth * .5,
+      bendX: 0, bendZ: 0,
     };
     if(depth < p.maxDepth && count < MAX_NODES){
       const n = rng.randInt(p.minBr, p.maxBr);
@@ -254,7 +255,7 @@ function collectBFS(root){
 
 /* ───────── mesh building ───────── */
 
-function makeBentBranchGeo(len, botRad, topRad, seed){
+function makeBentBranchGeo(len, botRad, topRad, seed, exX, exZ){
   const hSegs = 8;
   const g = new THREE.CylinderGeometry(topRad, botRad, len, 7, hSegs, false);
   g.translate(0, len/2, 0);
@@ -264,14 +265,15 @@ function makeBentBranchGeo(len, botRad, topRad, seed){
   const d1 = rng.range(0, Math.PI * 2);
   const a2 = len * rng.range(.03, .10);
   const d2 = rng.range(0, Math.PI * 2);
+  const bx = exX || 0, bz = exZ || 0;
 
   const pos = g.getAttribute('position');
   for(let i = 0; i < pos.count; i++){
     const t = clamp01(pos.getY(i) / len);
     const w1 = Math.sin(t * Math.PI);
     const w2 = Math.sin(t * 2 * Math.PI);
-    pos.setX(i, pos.getX(i) + w1 * Math.cos(d1) * a1 + w2 * Math.cos(d2) * a2);
-    pos.setZ(i, pos.getZ(i) + w1 * Math.sin(d1) * a1 + w2 * Math.sin(d2) * a2);
+    pos.setX(i, pos.getX(i) + w1*Math.cos(d1)*a1 + w2*Math.cos(d2)*a2 + w1*bx);
+    pos.setZ(i, pos.getZ(i) + w1*Math.sin(d1)*a1 + w2*Math.sin(d2)*a2 + w1*bz);
   }
   pos.needsUpdate = true;
   g.computeVertexNormals();
@@ -281,7 +283,7 @@ function makeBentBranchGeo(len, botRad, topRad, seed){
 function buildBranches(root, material, group){
   const all = collectBFS(root);
   for(const n of all){
-    const g = makeBentBranchGeo(n.len, n.rad, n.rad * .7, n.id * 137 + 42);
+    const g = makeBentBranchGeo(n.len, n.rad, n.rad * .7, n.id * 137 + 42, n.bendX, n.bendZ);
     const m = new THREE.Mesh(g, material);
     const q = new THREE.Quaternion().setFromUnitVectors(UP, n.dir);
     m.quaternion.copy(q);
@@ -509,11 +511,12 @@ function scheduleRegrowth(parent){
       depth: parent.depth+1, end: parent.end.clone().addScaledVector(cDir, cLen),
       children:[], parent, pruned:false, mesh:null,
       growStart: state.growthTime, _curEnd: parent.end.clone(),
+      bendX: 0, bendZ: 0,
     };
     parent.children.push(child);
     allNodes.push(child);
 
-    const g = makeBentBranchGeo(cLen, cRad, cRad*.7, child.id * 137 + 42);
+    const g = makeBentBranchGeo(cLen, cRad, cRad*.7, child.id * 137 + 42, 0, 0);
     const m = new THREE.Mesh(g, branchMat);
     m.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(UP, cDir));
     m.position.copy(parent._curEnd || parent.end);
@@ -632,10 +635,29 @@ canvas.addEventListener('click', e => {
 });
 
 window.addEventListener('keydown', e => {
-  if(e.key !== 'Delete' && e.key !== 'Backspace') return;
   if(!state.pruneMode) return;
-  if(_selLeaf >= 0){ dropSelectedLeaf(); return; }
-  if(state.selectedNode){ pruneSelected(); return; }
+
+  if(e.key === 'Delete' || e.key === 'Backspace'){
+    if(_selLeaf >= 0){ dropSelectedLeaf(); return; }
+    if(state.selectedNode){ pruneSelected(); return; }
+    return;
+  }
+
+  const n = state.selectedNode;
+  if(!n || !n.mesh) return;
+  const arrows = { ArrowLeft:-1, ArrowRight:1, ArrowUp:-1, ArrowDown:1 };
+  if(!(e.key in arrows)) return;
+  e.preventDefault();
+
+  const step = n.len * 0.06;
+  if(e.key === 'ArrowLeft')  n.bendX -= step;
+  if(e.key === 'ArrowRight') n.bendX += step;
+  if(e.key === 'ArrowUp')    n.bendZ -= step;
+  if(e.key === 'ArrowDown')  n.bendZ += step;
+
+  const oldGeo = n.mesh.geometry;
+  n.mesh.geometry = makeBentBranchGeo(n.len, n.rad, n.rad*.7, n.id*137+42, n.bendX, n.bendZ);
+  oldGeo.dispose();
 });
 
 /* ───────── rebuild ───────── */
