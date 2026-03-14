@@ -295,6 +295,35 @@ function buildBranches(root, material, group){
   return all;
 }
 
+function bentPoint(node, t, rng2){
+  const tc = clamp01(t);
+  const seed = node.id * 137 + 42;
+  const br = new RNG(seed);
+  const a1 = node.len * br.range(.04, .14);
+  const d1 = br.range(0, Math.PI * 2);
+  const a2 = node.len * br.range(.03, .10);
+  const d2 = br.range(0, Math.PI * 2);
+  const bx = node.bendX || 0, bz = node.bendZ || 0;
+
+  const w1 = Math.sin(tc * Math.PI);
+  const w2 = Math.sin(tc * 2 * Math.PI);
+  const localX = w1*Math.cos(d1)*a1 + w2*Math.cos(d2)*a2 + w1*bx;
+  const localZ = w1*Math.sin(d1)*a1 + w2*Math.sin(d2)*a2 + w1*bz;
+  const localY = tc * node.len;
+
+  const local = new THREE.Vector3(localX, localY, localZ);
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
+  local.applyQuaternion(q);
+
+  const radAtT = node.rad * (1 - tc * 0.3);
+  const angle = rng2.range(0, Math.PI * 2);
+  const radOff = rng2.range(radAtT * 0.5, radAtT * 1.5 + 0.06);
+  const perp = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+  perp.applyQuaternion(q);
+
+  return node.start.clone().add(local).addScaledVector(perp, radOff);
+}
+
 function buildLeaves(root, params, rng){
   const positions=[], colors=[], growEnds=[], sizes=[], rots=[], owners=[];
   const lc = new THREE.Color(params.leafCol);
@@ -308,10 +337,7 @@ function buildLeaves(root, params, rng){
       const nd = Math.floor(rng.range(3, params.leafDen+1));
       for(let i=0;i<nd;i++){
         const t = rng.range(.2, 1.1);
-        const p = node.start.clone().lerp(node.end, Math.min(t,1));
-        p.x += rng.range(-.4,.4);
-        p.y += rng.range(-.2,.4);
-        p.z += rng.range(-.4,.4);
+        const p = bentPoint(node, t, rng);
         positions.push(p.x,p.y,p.z);
         const r=Math.max(0,lc.r+rng.range(-.08,.08));
         const g=Math.max(0,lc.g+rng.range(-.1,.1));
