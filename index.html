@@ -667,17 +667,56 @@ window.addEventListener('keydown', e => {
   if(!arrows.includes(e.key)) return;
   e.preventDefault();
 
-  for(const n of selectedBranches){
-    if(!n.mesh) continue;
+  if(selectedBranches.length === 1){
+    const n = selectedBranches[0];
+    if(!n.mesh) return;
     const step = n.len * 0.06;
     if(e.key === 'ArrowLeft')  n.bendX -= step;
     if(e.key === 'ArrowRight') n.bendX += step;
     if(e.key === 'ArrowUp')    n.bendZ -= step;
     if(e.key === 'ArrowDown')  n.bendZ += step;
-
     const oldGeo = n.mesh.geometry;
     n.mesh.geometry = makeBentBranchGeo(n.len, n.rad, n.rad*.7, n.id*137+42, n.bendX, n.bendZ);
     oldGeo.dispose();
+  } else {
+    const avgLen = selectedBranches.reduce((s,n)=>s+n.len,0) / selectedBranches.length;
+    const step = avgLen * 0.08;
+    let dx = 0, dz = 0;
+    if(e.key === 'ArrowLeft')  dx = -step;
+    if(e.key === 'ArrowRight') dx =  step;
+    if(e.key === 'ArrowUp')    dz = -step;
+    if(e.key === 'ArrowDown')  dz =  step;
+
+    for(let i = 0; i < selectedBranches.length - 1; i++){
+      const a = selectedBranches[i];
+      const b = selectedBranches[i + 1];
+      if(!a.mesh || !b.mesh) continue;
+
+      const joint = a.end.clone();
+      joint.x += dx;
+      joint.z += dz;
+
+      a.end.copy(joint);
+      a.dir.copy(joint.clone().sub(a.start).normalize());
+      a.len = joint.distanceTo(a.start);
+
+      const bEnd = b.end.clone();
+      b.start.copy(joint);
+      const toBEnd = bEnd.clone().sub(joint);
+      b.len = toBEnd.length();
+      b.dir.copy(toBEnd.normalize());
+
+      const ogA = a.mesh.geometry;
+      a.mesh.geometry = makeBentBranchGeo(a.len, a.rad, a.rad*.7, a.id*137+42, a.bendX, a.bendZ);
+      ogA.dispose();
+      a.mesh.quaternion.setFromUnitVectors(UP, a.dir);
+
+      const ogB = b.mesh.geometry;
+      b.mesh.geometry = makeBentBranchGeo(b.len, b.rad, b.rad*.7, b.id*137+42, b.bendX, b.bendZ);
+      ogB.dispose();
+      b.mesh.quaternion.setFromUnitVectors(UP, b.dir);
+      b.mesh.position.copy(b.start);
+    }
   }
 });
 
