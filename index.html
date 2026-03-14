@@ -254,12 +254,33 @@ function collectBFS(root){
 
 /* ───────── mesh building ───────── */
 
+function makeBentBranchGeo(len, botRad, topRad, seed){
+  const hSegs = 6;
+  const g = new THREE.CylinderGeometry(topRad, botRad, len, 7, hSegs, false);
+  g.translate(0, len/2, 0);
+
+  const rng = new RNG(seed);
+  const amt = len * rng.range(.04, .14);
+  const ang = rng.range(0, Math.PI * 2);
+  const bx = Math.cos(ang) * amt;
+  const bz = Math.sin(ang) * amt;
+
+  const pos = g.getAttribute('position');
+  for(let i = 0; i < pos.count; i++){
+    const t = clamp01(pos.getY(i) / len);
+    const w = Math.sin(t * Math.PI);
+    pos.setX(i, pos.getX(i) + w * bx);
+    pos.setZ(i, pos.getZ(i) + w * bz);
+  }
+  pos.needsUpdate = true;
+  g.computeVertexNormals();
+  return g;
+}
+
 function buildBranches(root, material, group){
   const all = collectBFS(root);
   for(const n of all){
-    const topRad = n.rad * .7;
-    const g = new THREE.CylinderGeometry(topRad, n.rad, n.len, 7, 1, false);
-    g.translate(0, n.len/2, 0);
+    const g = makeBentBranchGeo(n.len, n.rad, n.rad * .7, n.id * 137 + 42);
     const m = new THREE.Mesh(g, material);
     const q = new THREE.Quaternion().setFromUnitVectors(UP, n.dir);
     m.quaternion.copy(q);
@@ -492,8 +513,7 @@ function scheduleRegrowth(parent){
     parent.children.push(child);
     allNodes.push(child);
 
-    const g = new THREE.CylinderGeometry(cRad*.7, cRad, cLen, 7, 1, false);
-    g.translate(0, cLen/2, 0);
+    const g = makeBentBranchGeo(cLen, cRad, cRad*.7, child.id * 137 + 42);
     const m = new THREE.Mesh(g, branchMat);
     m.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(UP, cDir));
     m.position.copy(parent._curEnd || parent.end);
