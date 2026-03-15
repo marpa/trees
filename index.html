@@ -256,8 +256,8 @@ function collectBFS(root){
 /* ───────── mesh building ───────── */
 
 function makeBentBranchGeo(len, botRad, topRad, seed, exX, exZ){
-  const hSegs = 8;
-  const g = new THREE.CylinderGeometry(topRad, botRad, len, 7, hSegs, false);
+  const hSegs = 12;
+  const g = new THREE.CylinderGeometry(topRad, botRad, len, 12, hSegs, false);
   g.translate(0, len/2, 0);
 
   const rng = new RNG(seed);
