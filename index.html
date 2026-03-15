@@ -63,11 +63,11 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A7C3F' },
-  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27' },
-  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A' },
-  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30' },
-  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A7C3F', leafShape:'oak' },
+  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle' },
+  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow' },
+  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round' },
+  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan' },
 };
 
 /* ───────── shaders ───────── */
@@ -159,40 +159,101 @@ void main(){
 
 /* ───────── leaf texture ───────── */
 
-function makeLeafTex(){
+function makeLeafTex(shape = 'oak'){
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const ctx = c.getContext('2d');
   ctx.clearRect(0,0,64,64);
-
   ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.moveTo(32, 2);
-  ctx.bezierCurveTo(48, 12, 58, 30, 32, 60);
-  ctx.bezierCurveTo(6, 30, 16, 12, 32, 2);
-  ctx.fill();
 
-  ctx.globalCompositeOperation = 'destination-out';
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-  ctx.lineWidth = .8;
-  for(let i = 1; i < 5; i++){
-    const y = 10 + i * 10;
+  if(shape === 'oak'){
     ctx.beginPath();
-    ctx.moveTo(32, y);
-    ctx.quadraticCurveTo(32 + i * 4, y + 4, 32 + i * 6, y - 2);
-    ctx.stroke();
+    ctx.moveTo(32, 4);
+    ctx.bezierCurveTo(40,10, 52,8, 50,18);
+    ctx.bezierCurveTo(58,20, 56,32, 48,30);
+    ctx.bezierCurveTo(54,38, 50,48, 42,44);
+    ctx.bezierCurveTo(40,52, 36,58, 32,60);
+    ctx.bezierCurveTo(28,58, 24,52, 22,44);
+    ctx.bezierCurveTo(14,48, 10,38, 16,30);
+    ctx.bezierCurveTo(8,32, 6,20, 14,18);
+    ctx.bezierCurveTo(12,8, 24,10, 32,4);
+    ctx.fill();
+  } else if(shape === 'needle'){
     ctx.beginPath();
-    ctx.moveTo(32, y);
-    ctx.quadraticCurveTo(32 - i * 4, y + 4, 32 - i * 6, y - 2);
-    ctx.stroke();
+    ctx.moveTo(32, 2);
+    ctx.lineTo(34, 30);
+    ctx.lineTo(32, 62);
+    ctx.lineTo(30, 30);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(22, 12);
+    ctx.lineTo(32, 16);
+    ctx.lineTo(42, 12);
+    ctx.lineTo(32, 20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(20, 28);
+    ctx.lineTo(32, 32);
+    ctx.lineTo(44, 28);
+    ctx.lineTo(32, 36);
+    ctx.closePath();
+    ctx.fill();
+  } else if(shape === 'willow'){
+    ctx.beginPath();
+    ctx.moveTo(32, 2);
+    ctx.bezierCurveTo(38, 14, 40, 40, 36, 62);
+    ctx.bezierCurveTo(34, 62, 30, 62, 28, 62);
+    ctx.bezierCurveTo(24, 40, 26, 14, 32, 2);
+    ctx.fill();
+  } else if(shape === 'round'){
+    ctx.beginPath();
+    ctx.ellipse(32, 32, 22, 24, 0, 0, Math.PI*2);
+    ctx.fill();
+  } else if(shape === 'fan'){
+    ctx.beginPath();
+    ctx.moveTo(32, 58);
+    ctx.bezierCurveTo(18, 42, 6, 22, 10, 10);
+    ctx.bezierCurveTo(16, 4, 24, 2, 32, 6);
+    ctx.bezierCurveTo(40, 2, 48, 4, 54, 10);
+    ctx.bezierCurveTo(58, 22, 46, 42, 32, 58);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = .6;
+    for(let a = -40; a <= 40; a += 20){
+      const rad = a * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(32, 56);
+      ctx.lineTo(32 + Math.sin(rad)*26, 8);
+      ctx.stroke();
+    }
+  }
+
+  if(shape !== 'needle' && shape !== 'fan'){
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = .6;
+    const veins = shape === 'round' ? 4 : 5;
+    for(let i = 1; i < veins; i++){
+      const y = 8 + i * (48 / veins);
+      const spread = shape === 'oak' ? i * 3.5 : i * 4;
+      ctx.beginPath(); ctx.moveTo(32, y);
+      ctx.quadraticCurveTo(32 + spread, y + 4, 32 + spread * 1.5, y - 2);
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(32, y);
+      ctx.quadraticCurveTo(32 - spread, y + 4, 32 - spread * 1.5, y - 2);
+      ctx.stroke();
+    }
   }
 
   ctx.globalCompositeOperation = 'source-over';
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = shape === 'needle' ? .5 : .8;
   ctx.beginPath();
-  ctx.moveTo(32, 6);
-  ctx.lineTo(32, 56);
+  ctx.moveTo(32, shape === 'round' ? 10 : 4);
+  ctx.lineTo(32, shape === 'round' ? 54 : 58);
   ctx.stroke();
 
   const t = new THREE.CanvasTexture(c);
@@ -434,7 +495,7 @@ let selectedBranches = [];
 let branchMat = null;
 let leafMat = null;
 let highlightMat = null;
-const leafTex = makeLeafTex();
+let leafTex = makeLeafTex('oak');
 
 function makeBranchMat(base, tip){
   return new THREE.ShaderMaterial({
@@ -768,6 +829,7 @@ function rebuild(){
   nodeId = 0;
 
   branchMat = makeBranchMat(state.trunkCol, state.tipCol);
+  leafTex = makeLeafTex(state.leafShape || 'oak');
   leafMat = makeLeafMat();
 
   const rng = new RNG(state.seed);
