@@ -18,7 +18,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="pruneHint">Click to select &middot; Shift+click to extend selection along chain &middot; Arrow keys to bend &middot; Delete to prune</div>
+<div id="pruneHint">Click to select &middot; Click again to add curve point &middot; Drag yellow to curve, orange to move tip &middot; Shift+click to chain &middot; Delete to prune</div>
 <script type="importmap">
 {
   "imports": {
@@ -272,6 +272,15 @@ function generateTree(p, rng){
   function makeNode(start, dir, len, rad, depth){
     if(count >= MAX_NODES) return null;
     count++;
+    const seed = (nodeId * 137 + 42);
+    const br = new RNG(seed);
+    const a1 = len * br.range(.04, .14);
+    const d1 = br.range(0, Math.PI * 2);
+    const a2 = len * br.range(.03, .10);
+    const d2 = br.range(0, Math.PI * 2);
+    const cp1t = 0.33, cp2t = 0.66;
+    const w1a = Math.sin(cp1t * Math.PI), w2a = Math.sin(cp1t * 2 * Math.PI);
+    const w1b = Math.sin(cp2t * Math.PI), w2b = Math.sin(cp2t * 2 * Math.PI);
     const node = {
       id: nodeId++,
       start: start.clone(),
@@ -283,7 +292,10 @@ function generateTree(p, rng){
       pruned: false,
       mesh: null,
       growStart: depth * .5,
-      bendX: 0, bendZ: 0,
+      controlPoints: [
+        { t: cp1t, dx: w1a*Math.cos(d1)*a1 + w2a*Math.cos(d2)*a2, dy: 0, dz: w1a*Math.sin(d1)*a1 + w2a*Math.sin(d2)*a2 },
+        { t: cp2t, dx: w1b*Math.cos(d1)*a1 + w2b*Math.cos(d2)*a2, dy: 0, dz: w1b*Math.sin(d1)*a1 + w2b*Math.sin(d2)*a2 },
+      ],
     };
     if(depth < p.maxDepth && count < MAX_NODES){
       const n = rng.randInt(p.minBr, p.maxBr);
@@ -316,35 +328,71 @@ function collectBFS(root){
 
 /* ───────── mesh building ───────── */
 
-function makeBentBranchGeo(len, botRad, topRad, seed, exX, exZ){
-  const hSegs = 12;
-  const g = new THREE.CylinderGeometry(topRad, botRad, len, 12, hSegs, false);
-  g.translate(0, len/2, 0);
-
-  const rng = new RNG(seed);
-  const a1 = len * rng.range(.04, .14);
-  const d1 = rng.range(0, Math.PI * 2);
-  const a2 = len * rng.range(.03, .10);
-  const d2 = rng.range(0, Math.PI * 2);
-  const bx = exX || 0, bz = exZ || 0;
-
-  const pos = g.getAttribute('position');
-  for(let i = 0; i < pos.count; i++){
-    const t = clamp01(pos.getY(i) / len);
-    const w1 = Math.sin(t * Math.PI);
-    const w2 = Math.sin(t * 2 * Math.PI);
-    pos.setX(i, pos.getX(i) + w1*Math.cos(d1)*a1 + w2*Math.cos(d2)*a2 + w1*bx);
-    pos.setZ(i, pos.getZ(i) + w1*Math.sin(d1)*a1 + w2*Math.sin(d2)*a2 + w1*bz);
+function buildNodeSpline(node){
+  const pts = [new THREE.Vector3(0, 0, 0)];
+  const sorted = [...node.controlPoints].sort((a,b) => a.t - b.t);
+  for(const cp of sorted){
+    pts.push(new THREE.Vector3(cp.dx, cp.t * node.len + cp.dy, cp.dz));
   }
-  pos.needsUpdate = true;
-  g.computeVertexNormals();
-  return g;
+  pts.push(new THREE.Vector3(0, node.len, 0));
+  return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+}
+
+function makeSplineBranchGeo(node){
+  const hSegs = 12, rSegs = 12;
+  const spline = buildNodeSpline(node);
+  const verts = [], norms = [], uvs = [], indices = [];
+  const tmp = new THREE.Vector3();
+
+  for(let j = 0; j <= hSegs; j++){
+    const t = j / hSegs;
+    const center = spline.getPointAt(t);
+    const tangent = spline.getTangentAt(t).normalize();
+
+    let normal = new THREE.Vector3();
+    if(Math.abs(tangent.y) < 0.99) normal.crossVectors(tangent, UP).normalize();
+    else normal.crossVectors(tangent, new THREE.Vector3(1,0,0)).normalize();
+    const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+
+    const radius = THREE.MathUtils.lerp(node.rad, node.rad * 0.7, t);
+
+    for(let i = 0; i <= rSegs; i++){
+      const angle = (i / rSegs) * Math.PI * 2;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      tmp.copy(center)
+        .addScaledVector(normal, cos * radius)
+        .addScaledVector(binormal, sin * radius);
+      verts.push(tmp.x, tmp.y, tmp.z);
+      const n = new THREE.Vector3()
+        .addScaledVector(normal, cos)
+        .addScaledVector(binormal, sin)
+        .normalize();
+      norms.push(n.x, n.y, n.z);
+      uvs.push(i / rSegs, t);
+    }
+  }
+
+  for(let j = 0; j < hSegs; j++){
+    for(let i = 0; i < rSegs; i++){
+      const a = j * (rSegs + 1) + i;
+      const b = a + rSegs + 1;
+      indices.push(a, b, a + 1);
+      indices.push(a + 1, b, b + 1);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  return geo;
 }
 
 function buildBranches(root, material, group){
   const all = collectBFS(root);
   for(const n of all){
-    const g = makeBentBranchGeo(n.len, n.rad, n.rad * .7, n.id * 137 + 42, n.bendX, n.bendZ);
+    const g = makeSplineBranchGeo(n);
     const m = new THREE.Mesh(g, material);
     const q = new THREE.Quaternion().setFromUnitVectors(UP, n.dir);
     m.quaternion.copy(q);
@@ -358,21 +406,8 @@ function buildBranches(root, material, group){
 
 function bentPoint(node, t, rng2){
   const tc = clamp01(t);
-  const seed = node.id * 137 + 42;
-  const br = new RNG(seed);
-  const a1 = node.len * br.range(.04, .14);
-  const d1 = br.range(0, Math.PI * 2);
-  const a2 = node.len * br.range(.03, .10);
-  const d2 = br.range(0, Math.PI * 2);
-  const bx = node.bendX || 0, bz = node.bendZ || 0;
-
-  const w1 = Math.sin(tc * Math.PI);
-  const w2 = Math.sin(tc * 2 * Math.PI);
-  const localX = w1*Math.cos(d1)*a1 + w2*Math.cos(d2)*a2 + w1*bx;
-  const localZ = w1*Math.sin(d1)*a1 + w2*Math.sin(d2)*a2 + w1*bz;
-  const localY = tc * node.len;
-
-  const local = new THREE.Vector3(localX, localY, localZ);
+  const spline = buildNodeSpline(node);
+  const local = spline.getPointAt(tc);
   const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
   local.applyQuaternion(q);
 
@@ -513,6 +548,79 @@ function makeLeafMat(){
 }
 
 highlightMat = new THREE.MeshStandardMaterial({ color:'#ff6633', emissive:'#ff3300', emissiveIntensity:.4 });
+const cpMat = new THREE.MeshStandardMaterial({ color:'#ffcc00', emissive:'#ffaa00', emissiveIntensity:.6 });
+const endpointMat = new THREE.MeshStandardMaterial({ color:'#ff6600', emissive:'#ff4400', emissiveIntensity:.7 });
+const cpGeo = new THREE.SphereGeometry(0.06, 8, 8);
+const endpointGeo = new THREE.SphereGeometry(0.08, 10, 10);
+const cpGroup = new THREE.Group();
+scene.add(cpGroup);
+
+function rebuildBranchMesh(node){
+  if(!node.mesh) return;
+  const oldGeo = node.mesh.geometry;
+  node.mesh.geometry = makeSplineBranchGeo(node);
+  oldGeo.dispose();
+}
+
+function cpWorldPos(node, cp){
+  const spline = buildNodeSpline(node);
+  const local = spline.getPointAt(clamp01(cp.t));
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
+  local.applyQuaternion(q);
+  return node.start.clone().add(local);
+}
+
+function cascadePositions(node){
+  for(const child of node.children){
+    if(child.pruned) continue;
+    child.start.copy(node.end);
+    child.end.copy(child.start.clone().addScaledVector(child.dir, child.len));
+    if(child.mesh){
+      child.mesh.position.copy(child.start);
+    }
+    cascadePositions(child);
+  }
+}
+
+function showCPHelpers(node){
+  clearCPHelpers();
+  for(const cp of node.controlPoints){
+    const m = new THREE.Mesh(cpGeo, cpMat);
+    m.position.copy(cpWorldPos(node, cp));
+    m.userData = { type: 'cp', cp, node };
+    cpGroup.add(m);
+  }
+  const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
+  tipSphere.position.copy(node.end);
+  tipSphere.userData = { type: 'tip', node };
+  cpGroup.add(tipSphere);
+}
+
+function showMultiHelpers(){
+  clearCPHelpers();
+  for(let i = 0; i < selectedBranches.length; i++){
+    const n = selectedBranches[i];
+    const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
+    tipSphere.position.copy(n.end);
+    tipSphere.userData = { type: 'tip', node: n };
+    cpGroup.add(tipSphere);
+  }
+}
+
+function clearCPHelpers(){
+  while(cpGroup.children.length) cpGroup.remove(cpGroup.children[0]);
+}
+
+function updateAllHelpers(){
+  for(const m of cpGroup.children){
+    const ud = m.userData;
+    if(ud.type === 'cp'){
+      m.position.copy(cpWorldPos(ud.node, ud.cp));
+    } else if(ud.type === 'tip'){
+      m.position.copy(ud.node.end);
+    }
+  }
+}
 
 /* ───────── growth ───────── */
 
@@ -603,12 +711,12 @@ function scheduleRegrowth(parent){
       depth: parent.depth+1, end: parent.end.clone().addScaledVector(cDir, cLen),
       children:[], parent, pruned:false, mesh:null,
       growStart: state.growthTime, _curEnd: parent.end.clone(),
-      bendX: 0, bendZ: 0,
+      controlPoints: [],
     };
     parent.children.push(child);
     allNodes.push(child);
 
-    const g = makeBentBranchGeo(cLen, cRad, cRad*.7, child.id * 137 + 42, 0, 0);
+    const g = makeSplineBranchGeo(child);
     const m = new THREE.Mesh(g, branchMat);
     m.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(UP, cDir));
     m.position.copy(parent._curEnd || parent.end);
@@ -649,6 +757,7 @@ function clearBranchSel(){
     if(n.mesh) n.mesh.material = branchMat;
   }
   selectedBranches = [];
+  clearCPHelpers();
 }
 
 function dropSelectedLeaf(){
@@ -684,6 +793,7 @@ function dropSelectedLeaf(){
 }
 
 canvas.addEventListener('click', e => {
+  if(wasDragging){ wasDragging = false; return; }
   if(!state.pruneMode) return;
   mouse.x = (e.clientX/innerWidth)*2-1;
   mouse.y = -(e.clientY/innerHeight)*2+1;
@@ -727,23 +837,128 @@ canvas.addEventListener('click', e => {
       if(last.children.includes(hitNode)){
         selectedBranches.push(hitNode);
         hitNode.mesh.material = highlightMat;
+        showMultiHelpers();
       } else if(hitNode.children.includes(first)){
         selectedBranches.unshift(hitNode);
         hitNode.mesh.material = highlightMat;
+        showMultiHelpers();
       }
     } else {
       if(selectedBranches.length === 1 && selectedBranches[0] === hitNode){
-        clearBranchSel(); return;
+        const hit = branchHits[0];
+        const worldPt = hit.point;
+        const localPt = worldPt.clone().sub(hitNode.start);
+        const q = new THREE.Quaternion().setFromUnitVectors(UP, hitNode.dir);
+        const qInv = q.clone().invert();
+        localPt.applyQuaternion(qInv);
+        const t = clamp01(localPt.y / hitNode.len);
+        hitNode.controlPoints.push({ t, dx: 0, dy: 0, dz: 0 });
+        rebuildBranchMesh(hitNode);
+        showCPHelpers(hitNode);
+        return;
       }
       clearBranchSel();
       selectedBranches = [hitNode];
       hitNode.mesh.material = highlightMat;
+      showCPHelpers(hitNode);
     }
     return;
   }
 
   clearLeafSel();
   clearBranchSel();
+});
+
+let dragType = null;
+let dragCP = null;
+let dragNode = null;
+let dragPlane = null;
+let dragStartWorld = null;
+let dragStartDx = 0, dragStartDy = 0, dragStartDz = 0;
+let wasDragging = false;
+
+canvas.addEventListener('pointerdown', e => {
+  if(!state.pruneMode || !cpGroup.children.length) return;
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  const hits = raycaster.intersectObjects(cpGroup.children);
+  if(!hits.length) return;
+
+  const hitMesh = hits[0].object;
+  const ud = hitMesh.userData;
+  dragType = ud.type;
+  dragNode = ud.node;
+
+  if(dragType === 'cp'){
+    dragCP = ud.cp;
+    dragStartDx = dragCP.dx;
+    dragStartDy = dragCP.dy;
+    dragStartDz = dragCP.dz;
+    dragStartWorld = cpWorldPos(dragNode, dragCP);
+  } else if(dragType === 'tip'){
+    dragCP = null;
+    dragStartWorld = dragNode.end.clone();
+  }
+
+  const camDir = camera.getWorldDirection(new THREE.Vector3());
+  dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, dragStartWorld);
+
+  controls.enabled = false;
+  e.preventDefault();
+  e.stopPropagation();
+});
+
+canvas.addEventListener('pointermove', e => {
+  if(!dragType || !dragNode) return;
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  const newWorld = new THREE.Vector3();
+  if(!raycaster.ray.intersectPlane(dragPlane, newWorld)) return;
+
+  if(dragType === 'cp'){
+    const delta = newWorld.clone().sub(dragStartWorld);
+    const q = new THREE.Quaternion().setFromUnitVectors(UP, dragNode.dir);
+    const qInv = q.clone().invert();
+    const localDelta = delta.clone().applyQuaternion(qInv);
+    dragCP.dx = dragStartDx + localDelta.x;
+    dragCP.dy = dragStartDy + localDelta.y;
+    dragCP.dz = dragStartDz + localDelta.z;
+    rebuildBranchMesh(dragNode);
+  } else if(dragType === 'tip'){
+    dragNode.end.copy(newWorld);
+    const toEnd = newWorld.clone().sub(dragNode.start);
+    dragNode.len = toEnd.length();
+    if(dragNode.len > 0.01){
+      dragNode.dir.copy(toEnd.normalize());
+    }
+    if(dragNode.mesh){
+      dragNode.mesh.quaternion.setFromUnitVectors(UP, dragNode.dir);
+    }
+    rebuildBranchMesh(dragNode);
+    cascadePositions(dragNode);
+    for(const child of dragNode.children){
+      if(!child.pruned && child.mesh){
+        child.mesh.position.copy(child.start);
+        rebuildBranchMesh(child);
+      }
+    }
+  }
+  updateAllHelpers();
+});
+
+canvas.addEventListener('pointerup', () => {
+  if(!dragType) return;
+  wasDragging = true;
+  dragType = null;
+  dragCP = null;
+  dragNode = null;
+  dragPlane = null;
+  controls.enabled = true;
+  rebuildLeaves();
 });
 
 window.addEventListener('keydown', e => {
@@ -755,62 +970,21 @@ window.addEventListener('keydown', e => {
     return;
   }
 
-  if(!selectedBranches.length) return;
+  if(selectedBranches.length !== 1) return;
+  const n = selectedBranches[0];
+  if(!n.controlPoints.length) return;
   const arrows = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
   if(!arrows.includes(e.key)) return;
   e.preventDefault();
 
-  if(selectedBranches.length === 1){
-    const n = selectedBranches[0];
-    if(!n.mesh) return;
-    const step = n.len * 0.06;
-    if(e.key === 'ArrowLeft')  n.bendX -= step;
-    if(e.key === 'ArrowRight') n.bendX += step;
-    if(e.key === 'ArrowUp')    n.bendZ -= step;
-    if(e.key === 'ArrowDown')  n.bendZ += step;
-    const oldGeo = n.mesh.geometry;
-    n.mesh.geometry = makeBentBranchGeo(n.len, n.rad, n.rad*.7, n.id*137+42, n.bendX, n.bendZ);
-    oldGeo.dispose();
-  } else {
-    const avgLen = selectedBranches.reduce((s,n)=>s+n.len,0) / selectedBranches.length;
-    const step = avgLen * 0.08;
-    let dx = 0, dz = 0;
-    if(e.key === 'ArrowLeft')  dx = -step;
-    if(e.key === 'ArrowRight') dx =  step;
-    if(e.key === 'ArrowUp')    dz = -step;
-    if(e.key === 'ArrowDown')  dz =  step;
-
-    for(let i = 0; i < selectedBranches.length - 1; i++){
-      const a = selectedBranches[i];
-      const b = selectedBranches[i + 1];
-      if(!a.mesh || !b.mesh) continue;
-
-      const joint = a.end.clone();
-      joint.x += dx;
-      joint.z += dz;
-
-      a.end.copy(joint);
-      a.dir.copy(joint.clone().sub(a.start).normalize());
-      a.len = joint.distanceTo(a.start);
-
-      const bEnd = b.end.clone();
-      b.start.copy(joint);
-      const toBEnd = bEnd.clone().sub(joint);
-      b.len = toBEnd.length();
-      b.dir.copy(toBEnd.normalize());
-
-      const ogA = a.mesh.geometry;
-      a.mesh.geometry = makeBentBranchGeo(a.len, a.rad, a.rad*.7, a.id*137+42, a.bendX, a.bendZ);
-      ogA.dispose();
-      a.mesh.quaternion.setFromUnitVectors(UP, a.dir);
-
-      const ogB = b.mesh.geometry;
-      b.mesh.geometry = makeBentBranchGeo(b.len, b.rad, b.rad*.7, b.id*137+42, b.bendX, b.bendZ);
-      ogB.dispose();
-      b.mesh.quaternion.setFromUnitVectors(UP, b.dir);
-      b.mesh.position.copy(b.start);
-    }
-  }
+  const cp = n.controlPoints[n.controlPoints.length - 1];
+  const step = n.len * 0.06;
+  if(e.key === 'ArrowLeft')  cp.dx -= step;
+  if(e.key === 'ArrowRight') cp.dx += step;
+  if(e.key === 'ArrowUp')    cp.dz -= step;
+  if(e.key === 'ArrowDown')  cp.dz += step;
+  rebuildBranchMesh(n);
+  updateAllHelpers();
   rebuildLeaves();
 });
 
@@ -824,6 +998,7 @@ function rebuild(){
   }
   fallingDebris.length = 0;
   selectedBranches = [];
+  clearCPHelpers();
   state.growthTime = 0;
   state.playing = true;
   nodeId = 0;
