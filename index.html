@@ -68,6 +68,7 @@ const PRESETS = {
   Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
   Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
   Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
+  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, droop:.42, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
 };
 
 /* ───────── shaders ───────── */
@@ -229,9 +230,52 @@ function makeLeafTex(shape = 'oak'){
       ctx.lineTo(32 + Math.sin(rad)*26, 8);
       ctx.stroke();
     }
+  } else if(shape === 'maple'){
+    const cx = 32, cy = 40, n = 7, sinusR = 5;
+    const lengths = [27, 21, 18, 13, 13, 18, 21];
+    const angles = [];
+    for(let i = 0; i < n; i++) angles.push(-Math.PI / 2 + i * 2 * Math.PI / n);
+    function midAng(a, b){
+      let m = (a + b) / 2;
+      if(b < a) m = (a + b + 2 * Math.PI) / 2;
+      return m;
+    }
+    ctx.beginPath();
+    const m0 = midAng(angles[n - 1], angles[0] + 2 * Math.PI);
+    ctx.moveTo(cx + Math.cos(m0) * sinusR, cy + Math.sin(m0) * sinusR);
+    for(let i = 0; i < n; i++){
+      ctx.lineTo(cx + Math.cos(angles[i]) * lengths[i], cy + Math.sin(angles[i]) * lengths[i]);
+      const next = angles[(i + 1) % n];
+      const ma = i === n - 1 ? midAng(angles[i], next + 2 * Math.PI) : midAng(angles[i], next);
+      ctx.lineTo(cx + Math.cos(ma) * sinusR, cy + Math.sin(ma) * sinusR);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 0.85;
+    ctx.lineJoin = 'miter';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 0.45;
+    for(let i = 0; i < n; i++){
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(angles[i]) * lengths[i] * 0.9, cy + Math.sin(angles[i]) * lengths[i] * 0.9);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, 61);
+    ctx.stroke();
   }
 
-  if(shape !== 'needle' && shape !== 'fan'){
+  if(shape !== 'needle' && shape !== 'fan' && shape !== 'maple'){
     ctx.globalCompositeOperation = 'destination-out';
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
     ctx.lineWidth = .6;
@@ -248,13 +292,15 @@ function makeLeafTex(shape = 'oak'){
     }
   }
 
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-  ctx.lineWidth = shape === 'needle' ? .5 : .8;
-  ctx.beginPath();
-  ctx.moveTo(32, shape === 'round' ? 10 : 4);
-  ctx.lineTo(32, shape === 'round' ? 54 : 58);
-  ctx.stroke();
+  if(shape !== 'maple'){
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = shape === 'needle' ? .5 : .8;
+    ctx.beginPath();
+    ctx.moveTo(32, shape === 'round' ? 10 : 4);
+    ctx.lineTo(32, shape === 'round' ? 54 : 58);
+    ctx.stroke();
+  }
 
   const t = new THREE.CanvasTexture(c);
   t.needsUpdate = true;
