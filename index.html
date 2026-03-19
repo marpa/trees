@@ -63,11 +63,11 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A7C3F', leafShape:'oak' },
-  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle' },
-  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow' },
-  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round' },
-  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A7C3F', leafShape:'oak', leafArr:'alternate' },
+  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
+  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
+  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
+  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
 };
 
 /* ───────── shaders ───────── */
@@ -420,6 +420,97 @@ function bentPoint(node, t, rng2){
   return node.start.clone().add(local).addScaledVector(perp, radOff);
 }
 
+function bentPointAt(node, t, angle, radius){
+  const tc = clamp01(t);
+  const spline = buildNodeSpline(node);
+  const local = spline.getPointAt(tc);
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
+  local.applyQuaternion(q);
+  const perp = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+  perp.applyQuaternion(q);
+  return node.start.clone().add(local).addScaledVector(perp, radius);
+}
+
+const GOLDEN_ANGLE = 2.399963;
+
+function getLeafPlacements(node, params, rng){
+  const arr = params.leafArr || 'alternate';
+  const den = Math.floor(rng.range(3, params.leafDen + 1));
+  const radBase = node.rad * 0.8 + 0.04;
+  const placements = [];
+
+  const tMin = 0.12, tMax = 0.98;
+
+  if(arr === 'alternate'){
+    const n = Math.max(den, 1);
+    const step = (tMax - tMin) / Math.max(n - 1, 1);
+    for(let i = 0; i < n; i++){
+      const t = (i === n - 1) ? tMax : tMin + i * step + rng.range(-step * 0.12, step * 0.12);
+      const angle = i * GOLDEN_ANGLE + rng.range(-0.2, 0.2);
+      const r = radBase + rng.range(0, 0.06);
+      placements.push({ t: clamp01(t), angle, radius: r });
+    }
+  } else if(arr === 'opposite'){
+    const pairs = Math.max(Math.floor(den / 2), 1);
+    const step = (tMax - tMin) / Math.max(pairs - 1, 1);
+    let baseAngle = rng.range(0, Math.PI);
+    for(let i = 0; i < pairs; i++){
+      const t = (i === pairs - 1) ? tMax : clamp01(tMin + i * step + rng.range(-step * 0.1, step * 0.1));
+      const a = baseAngle + rng.range(-0.15, 0.15);
+      placements.push({ t, angle: a, radius: radBase + rng.range(0, 0.05) });
+      placements.push({ t, angle: a + Math.PI + rng.range(-0.15, 0.15), radius: radBase + rng.range(0, 0.05) });
+      baseAngle += Math.PI / 2 + rng.range(-0.2, 0.2);
+    }
+  } else if(arr === 'whorled'){
+    const whorls = Math.max(Math.floor(den / 4), 1);
+    const perWhorl = Math.max(Math.ceil(den / whorls), 3);
+    const step = (tMax - tMin) / Math.max(whorls - 1, 1);
+    for(let w = 0; w < whorls; w++){
+      const t = (w === whorls - 1) ? tMax : clamp01(tMin + w * step + rng.range(-step * 0.1, step * 0.1));
+      const offset = rng.range(0, Math.PI * 2);
+      for(let i = 0; i < perWhorl; i++){
+        const a = offset + (i / perWhorl) * Math.PI * 2 + rng.range(-0.15, 0.15);
+        placements.push({ t, angle: a, radius: radBase + rng.range(0, 0.05) });
+      }
+    }
+  } else if(arr === 'fascicled'){
+    const clusters = Math.max(Math.floor(rng.range(2, 4)), 1);
+    const perCluster = Math.max(Math.ceil(den / clusters), 2);
+    for(let c = 0; c < clusters; c++){
+      const ct = clamp01(rng.range(0.25, tMax));
+      const cAngle = rng.range(0, Math.PI * 2);
+      for(let i = 0; i < perCluster; i++){
+        const t = clamp01(ct + rng.range(-0.05, 0.05));
+        const a = cAngle + rng.range(-0.6, 0.6);
+        const r = radBase * 0.5 + rng.range(0, radBase * 0.8);
+        placements.push({ t, angle: a, radius: r });
+      }
+    }
+    const tipCluster = Math.max(Math.floor(perCluster * 0.6), 1);
+    const tipAngle = rng.range(0, Math.PI * 2);
+    for(let i = 0; i < tipCluster; i++){
+      placements.push({ t: clamp01(tMax + rng.range(-0.04, 0)), angle: tipAngle + (i / tipCluster) * Math.PI * 2 + rng.range(-0.2, 0.2), radius: radBase * 0.4 + rng.range(0, 0.04) });
+    }
+  } else if(arr === 'radial'){
+    const rings = Math.max(Math.floor(den / 5), 1);
+    const perRing = Math.max(Math.ceil(den / rings), 4);
+    const step = (tMax - 0.5) / Math.max(rings - 1, 1);
+    for(let ri = 0; ri < rings; ri++){
+      const t = (ri === rings - 1) ? tMax : clamp01(0.5 + ri * step + rng.range(-0.03, 0.03));
+      for(let i = 0; i < perRing; i++){
+        const a = (i / perRing) * Math.PI * 2 + rng.range(-0.15, 0.15);
+        const rad = radBase + rng.range(0, 0.1);
+        placements.push({ t, angle: a, radius: rad });
+      }
+    }
+  } else {
+    for(let i = 0; i < den; i++){
+      placements.push({ t: rng.range(0.2, 1.0), angle: rng.range(0, Math.PI*2), radius: radBase + rng.range(0, 0.06) });
+    }
+  }
+  return placements;
+}
+
 function buildLeaves(root, params, rng){
   const positions=[], colors=[], growEnds=[], sizes=[], rots=[], owners=[];
   const lc = new THREE.Color(params.leafCol);
@@ -430,10 +521,9 @@ function buildLeaves(root, params, rng){
     const living = node.children.filter(c => !c.pruned);
     const isTerminal = living.length === 0;
     if(node.depth >= params.maxDepth - 1 || isTerminal){
-      const nd = Math.floor(rng.range(3, params.leafDen+1));
-      for(let i=0;i<nd;i++){
-        const t = rng.range(.2, 1.1);
-        const p = bentPoint(node, t, rng);
+      const placements = getLeafPlacements(node, params, rng);
+      for(const pl of placements){
+        const p = bentPointAt(node, pl.t, pl.angle, pl.radius);
         positions.push(p.x,p.y,p.z);
         const r=Math.max(0,lc.r+rng.range(-.08,.08));
         const g=Math.max(0,lc.g+rng.range(-.1,.1));
@@ -1057,6 +1147,7 @@ fStyle.addColor(state,'trunkCol').name('Trunk').onChange(()=>rebuild());
 fStyle.addColor(state,'leafCol').name('Leaves').onChange(()=>rebuildLeaves());
 fStyle.add(state,'leafDen',2,25,1).name('Leaf Density').onChange(()=>rebuildLeaves());
 fStyle.add(state,'leafSz',.1,1,.05).name('Leaf Size').onChange(()=>rebuildLeaves());
+fStyle.add(state,'leafArr',['alternate','opposite','whorled','fascicled','radial']).name('Arrangement').onChange(()=>rebuildLeaves());
 fStyle.close();
 
 gui.add(state,'pruneMode').name('Prune Mode').onChange(v => {
