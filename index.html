@@ -63,7 +63,7 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A7C3F', leafShape:'oak', leafArr:'alternate' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#C85A28', leafShape:'oak', leafArr:'alternate' },
   Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
   Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
   Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
@@ -169,16 +169,47 @@ function makeLeafTex(shape = 'oak'){
 
   if(shape === 'oak'){
     ctx.beginPath();
-    ctx.moveTo(32, 4);
-    ctx.bezierCurveTo(40,10, 52,8, 50,18);
-    ctx.bezierCurveTo(58,20, 56,32, 48,30);
-    ctx.bezierCurveTo(54,38, 50,48, 42,44);
-    ctx.bezierCurveTo(40,52, 36,58, 32,60);
-    ctx.bezierCurveTo(28,58, 24,52, 22,44);
-    ctx.bezierCurveTo(14,48, 10,38, 16,30);
-    ctx.bezierCurveTo(8,32, 6,20, 14,18);
-    ctx.bezierCurveTo(12,8, 24,10, 32,4);
+    ctx.moveTo(32, 61);
+    ctx.lineTo(27, 57);
+    ctx.lineTo(21, 52);
+    ctx.lineTo(12, 49);
+    ctx.lineTo(9, 47);
+    ctx.quadraticCurveTo(17, 46, 22, 44);
+    ctx.lineTo(8, 40);
+    ctx.lineTo(6, 38);
+    ctx.quadraticCurveTo(14, 36.5, 22, 35);
+    ctx.lineTo(8, 30);
+    ctx.lineTo(6, 28);
+    ctx.quadraticCurveTo(15, 26.5, 23, 24);
+    ctx.lineTo(10, 18);
+    ctx.lineTo(8, 16);
+    ctx.quadraticCurveTo(17, 13, 25, 10);
+    ctx.lineTo(30, 6);
+    ctx.lineTo(32, 3);
+    ctx.lineTo(34, 6);
+    ctx.lineTo(39, 10);
+    ctx.quadraticCurveTo(47, 13, 56, 16);
+    ctx.lineTo(54, 18);
+    ctx.lineTo(41, 24);
+    ctx.quadraticCurveTo(49, 26.5, 58, 28);
+    ctx.lineTo(56, 30);
+    ctx.lineTo(42, 35);
+    ctx.quadraticCurveTo(50, 36.5, 58, 38);
+    ctx.lineTo(56, 40);
+    ctx.lineTo(42, 44);
+    ctx.quadraticCurveTo(47, 46, 55, 47);
+    ctx.lineTo(52, 49);
+    ctx.lineTo(43, 52);
+    ctx.lineTo(37, 57);
+    ctx.lineTo(32, 61);
+    ctx.closePath();
     ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 0.75;
+    ctx.lineJoin = 'miter';
+    ctx.lineCap = 'butt';
+    ctx.stroke();
   } else if(shape === 'needle'){
     ctx.beginPath();
     ctx.moveTo(32, 2);
@@ -275,14 +306,31 @@ function makeLeafTex(shape = 'oak'){
     ctx.stroke();
   }
 
-  if(shape !== 'needle' && shape !== 'fan' && shape !== 'maple'){
+  if(shape === 'oak'){
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+    ctx.lineWidth = 0.42;
+    const pairs = [
+      [47, 11, 9], [42, 18, 8], [37, 26, 9], [33, 34, 10], [30, 42, 11],
+    ];
+    for(const [y, spread, ext] of pairs){
+      ctx.beginPath();
+      ctx.moveTo(32, y);
+      ctx.lineTo(32 - spread, y - ext);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(32, y);
+      ctx.lineTo(32 + spread, y - ext);
+      ctx.stroke();
+    }
+  } else if(shape !== 'needle' && shape !== 'fan' && shape !== 'maple'){
     ctx.globalCompositeOperation = 'destination-out';
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
     ctx.lineWidth = .6;
     const veins = shape === 'round' ? 4 : 5;
     for(let i = 1; i < veins; i++){
       const y = 8 + i * (48 / veins);
-      const spread = shape === 'oak' ? i * 3.5 : i * 4;
+      const spread = i * 4;
       ctx.beginPath(); ctx.moveTo(32, y);
       ctx.quadraticCurveTo(32 + spread, y + 4, 32 + spread * 1.5, y - 2);
       ctx.stroke();
@@ -297,8 +345,16 @@ function makeLeafTex(shape = 'oak'){
     ctx.strokeStyle = 'rgba(255,255,255,0.45)';
     ctx.lineWidth = shape === 'needle' ? .5 : .8;
     ctx.beginPath();
-    ctx.moveTo(32, shape === 'round' ? 10 : 4);
-    ctx.lineTo(32, shape === 'round' ? 54 : 58);
+    if(shape === 'round'){
+      ctx.moveTo(32, 10);
+      ctx.lineTo(32, 54);
+    } else if(shape === 'oak'){
+      ctx.moveTo(32, 3);
+      ctx.lineTo(32, 60);
+    } else {
+      ctx.moveTo(32, 4);
+      ctx.lineTo(32, 58);
+    }
     ctx.stroke();
   }
 
