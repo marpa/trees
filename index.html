@@ -897,6 +897,7 @@ function pruneSelected(){
   selectedBranches = [];
 
   rebuildLeaves();
+  if(typeof updateSummary === 'function') updateSummary();
 }
 
 function scheduleRegrowth(parent){
@@ -947,6 +948,7 @@ function rebuildLeaves(){
   treeGroup.add(leafPoints);
   if(leafMat) leafMat.uniforms.uReveal.value = 1.0;
   rebuildJunctions();
+  if(typeof updateSummary === 'function') updateSummary();
 }
 
 function rebuildJunctions(){
@@ -1273,6 +1275,7 @@ function rebuild(){
   treeGroup.add(leafPoints);
 
   controls.target.set(0, state.trunkLen * 1.2, 0);
+  if(typeof updateSummary === 'function') updateSummary();
 }
 
 /* ───────── GUI ───────── */
@@ -1325,6 +1328,27 @@ gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
 });
 
 gui.add({ newSeed(){ state.seed=Math.floor(Math.random()*99999); rebuild(); }}, 'newSeed').name('New Seed');
+
+const summary = { species: state.species, seed: state.seed, branches: 0, leaves: 0, depth: 0, height: 0 };
+
+function updateSummary(){
+  const active = allNodes.filter(n => !n.pruned);
+  summary.species = state.species;
+  summary.seed = state.seed;
+  summary.branches = active.length;
+  summary.depth = active.reduce((m, n) => Math.max(m, n.depth), 0);
+  summary.height = parseFloat(active.reduce((m, n) => Math.max(m, n.end.y), 0).toFixed(2));
+  summary.leaves = leafPoints ? leafPoints.geometry.attributes.position.count : 0;
+  fSummary.controllersRecursive().forEach(c => c.updateDisplay());
+}
+
+const fSummary = gui.addFolder('Summary');
+fSummary.add(summary, 'species').name('Species').disable().listen();
+fSummary.add(summary, 'seed').name('Seed').disable().listen();
+fSummary.add(summary, 'branches').name('Branches').disable().listen();
+fSummary.add(summary, 'leaves').name('Leaves').disable().listen();
+fSummary.add(summary, 'depth').name('Max Depth').disable().listen();
+fSummary.add(summary, 'height').name('Height (m)').disable().listen();
 
 function refreshGUI(){ gui.controllersRecursive().forEach(c => c.updateDisplay()); }
 
