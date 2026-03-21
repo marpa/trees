@@ -63,7 +63,7 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#C85A28', leafShape:'oak', leafArr:'alternate' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
   Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
   Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
   Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
@@ -170,45 +170,31 @@ function makeLeafTex(shape = 'oak'){
   if(shape === 'oak'){
     ctx.beginPath();
     ctx.moveTo(32, 61);
-    ctx.lineTo(27, 57);
-    ctx.lineTo(21, 52);
-    ctx.lineTo(12, 49);
-    ctx.lineTo(9, 47);
-    ctx.quadraticCurveTo(17, 46, 22, 44);
-    ctx.lineTo(8, 40);
-    ctx.lineTo(6, 38);
-    ctx.quadraticCurveTo(14, 36.5, 22, 35);
-    ctx.lineTo(8, 30);
-    ctx.lineTo(6, 28);
-    ctx.quadraticCurveTo(15, 26.5, 23, 24);
-    ctx.lineTo(10, 18);
-    ctx.lineTo(8, 16);
-    ctx.quadraticCurveTo(17, 13, 25, 10);
-    ctx.lineTo(30, 6);
-    ctx.lineTo(32, 3);
-    ctx.lineTo(34, 6);
-    ctx.lineTo(39, 10);
-    ctx.quadraticCurveTo(47, 13, 56, 16);
-    ctx.lineTo(54, 18);
-    ctx.lineTo(41, 24);
-    ctx.quadraticCurveTo(49, 26.5, 58, 28);
-    ctx.lineTo(56, 30);
-    ctx.lineTo(42, 35);
-    ctx.quadraticCurveTo(50, 36.5, 58, 38);
-    ctx.lineTo(56, 40);
-    ctx.lineTo(42, 44);
-    ctx.quadraticCurveTo(47, 46, 55, 47);
-    ctx.lineTo(52, 49);
-    ctx.lineTo(43, 52);
-    ctx.lineTo(37, 57);
-    ctx.lineTo(32, 61);
+    ctx.bezierCurveTo(29, 59, 26, 57, 23, 54);
+    ctx.bezierCurveTo(17, 52.5, 11, 49.5, 9, 45);
+    ctx.bezierCurveTo(8, 41.5, 12, 39, 18, 39);
+    ctx.bezierCurveTo(14, 37, 9, 33, 9, 29);
+    ctx.bezierCurveTo(9, 25, 13, 23, 19, 24);
+    ctx.bezierCurveTo(15, 21, 11, 17, 12, 13);
+    ctx.bezierCurveTo(13, 10, 17, 9.5, 22, 11);
+    ctx.bezierCurveTo(20, 8, 22, 5, 26, 4);
+    ctx.bezierCurveTo(28, 3.5, 30, 3, 32, 3);
+    ctx.bezierCurveTo(34, 3, 36, 3.5, 38, 4);
+    ctx.bezierCurveTo(42, 5, 44, 8, 42, 11);
+    ctx.bezierCurveTo(47, 9.5, 51, 10, 52, 13);
+    ctx.bezierCurveTo(53, 17, 49, 21, 45, 24);
+    ctx.bezierCurveTo(51, 23, 55, 25, 55, 29);
+    ctx.bezierCurveTo(55, 33, 50, 37, 46, 39);
+    ctx.bezierCurveTo(52, 39, 56, 41.5, 55, 45);
+    ctx.bezierCurveTo(53, 49.5, 47, 52.5, 41, 54);
+    ctx.bezierCurveTo(38, 57, 35, 59, 32, 61);
     ctx.closePath();
     ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-    ctx.lineWidth = 0.75;
-    ctx.lineJoin = 'miter';
-    ctx.lineCap = 'butt';
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 0.6;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     ctx.stroke();
   } else if(shape === 'needle'){
     ctx.beginPath();
@@ -308,19 +294,19 @@ function makeLeafTex(shape = 'oak'){
 
   if(shape === 'oak'){
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.strokeStyle = 'rgba(0,0,0,0.13)';
-    ctx.lineWidth = 0.42;
-    const pairs = [
-      [47, 11, 9], [42, 18, 8], [37, 26, 9], [33, 34, 10], [30, 42, 11],
+    ctx.strokeStyle = 'rgba(0,0,0,0.11)';
+    ctx.lineWidth = 0.38;
+    const veins = [
+      [45, 10, 8], [41, 17, 8], [37, 25, 9], [34, 33, 9.5], [31, 41, 10],
     ];
-    for(const [y, spread, ext] of pairs){
+    for(const [y, spread, ext] of veins){
       ctx.beginPath();
       ctx.moveTo(32, y);
-      ctx.lineTo(32 - spread, y - ext);
+      ctx.quadraticCurveTo(32 - spread * 0.45, y - ext * 0.35, 32 - spread, y - ext);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(32, y);
-      ctx.lineTo(32 + spread, y - ext);
+      ctx.quadraticCurveTo(32 + spread * 0.45, y - ext * 0.35, 32 + spread, y - ext);
       ctx.stroke();
     }
   } else if(shape !== 'needle' && shape !== 'fan' && shape !== 'maple'){
@@ -627,9 +613,29 @@ function buildLeaves(root, params, rng){
       for(const pl of placements){
         const p = bentPointAt(node, pl.t, pl.angle, pl.radius);
         positions.push(p.x,p.y,p.z);
-        const r=Math.max(0,lc.r+rng.range(-.08,.08));
-        const g=Math.max(0,lc.g+rng.range(-.1,.1));
-        const b=Math.max(0,lc.b+rng.range(-.06,.06));
+        let r, g, b;
+        if(params.leafShape === 'oak'){
+          const autumn = [
+            [0.44, 0.11, 0.03], [0.40, 0.09, 0.02], [0.36, 0.07, 0.02],
+            [0.32, 0.06, 0.02], [0.48, 0.13, 0.04], [0.42, 0.10, 0.03],
+            [0.38, 0.04, 0.07], [0.34, 0.03, 0.06], [0.30, 0.025, 0.05],
+            [0.42, 0.06, 0.08], [0.36, 0.04, 0.06], [0.46, 0.08, 0.05],
+            [0.40, 0.12, 0.04], [0.34, 0.08, 0.03], [0.50, 0.14, 0.05],
+          ];
+          const pick = autumn[Math.floor(rng.random() * autumn.length)];
+          r = Math.max(0, pick[0] + rng.range(-0.03, 0.02));
+          g = Math.max(0, pick[1] + rng.range(-0.03, 0.02));
+          b = Math.max(0, pick[2] + rng.range(-0.025, 0.015));
+          if(rng.random() < 0.12){
+            r = Math.max(0, r * 0.48 + rng.range(0, 0.05));
+            g = Math.max(0, g * 0.45 + rng.range(0, 0.04));
+            b = Math.max(0, b * 0.42);
+          }
+        } else {
+          r = Math.max(0, lc.r + rng.range(-.08, .08));
+          g = Math.max(0, lc.g + rng.range(-.1, .1));
+          b = Math.max(0, lc.b + rng.range(-.06, .06));
+        }
         colors.push(r,g,b);
         growEnds.push((node.growStart + .8) / (maxGrow*1.1) + rng.range(0,.08));
         sizes.push(rng.range(params.leafSz*8, params.leafSz*18));
