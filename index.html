@@ -712,6 +712,8 @@ scene.add(treeGroup);
 let allNodes = [];
 let root = null;
 let leafPoints = null;
+let junctionSpheres = [];
+const junctionGeo = new THREE.SphereGeometry(1, 10, 10);
 
 const state = {
   species: 'Oak',
@@ -746,8 +748,8 @@ function makeLeafMat(){
 }
 
 highlightMat = new THREE.MeshStandardMaterial({ color:'#ff6633', emissive:'#ff3300', emissiveIntensity:.4 });
-const cpMat = new THREE.MeshStandardMaterial({ color:'#ffcc00', emissive:'#ffaa00', emissiveIntensity:.6 });
-const endpointMat = new THREE.MeshStandardMaterial({ color:'#ff6600', emissive:'#ff4400', emissiveIntensity:.7 });
+const cpMat = new THREE.MeshStandardMaterial({ color:'#ffcc00', emissive:'#ffaa00', emissiveIntensity:.6, depthTest:false });
+const endpointMat = new THREE.MeshStandardMaterial({ color:'#ff6600', emissive:'#ff4400', emissiveIntensity:.7, depthTest:false });
 const cpGeo = new THREE.SphereGeometry(0.06, 8, 8);
 const endpointGeo = new THREE.SphereGeometry(0.08, 10, 10);
 const cpGroup = new THREE.Group();
@@ -780,6 +782,15 @@ function cascadePositions(node){
   }
 }
 
+function makeTipHelper(node){
+  const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
+  tipSphere.position.copy(node.end);
+  const jRadius = node.rad * 0.7 * 1.25;
+  if(jRadius > 0.08) tipSphere.scale.setScalar(jRadius / 0.08);
+  tipSphere.userData = { type: 'tip', node };
+  return tipSphere;
+}
+
 function showCPHelpers(node){
   clearCPHelpers();
   for(const cp of node.controlPoints){
@@ -788,20 +799,13 @@ function showCPHelpers(node){
     m.userData = { type: 'cp', cp, node };
     cpGroup.add(m);
   }
-  const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
-  tipSphere.position.copy(node.end);
-  tipSphere.userData = { type: 'tip', node };
-  cpGroup.add(tipSphere);
+  cpGroup.add(makeTipHelper(node));
 }
 
 function showMultiHelpers(){
   clearCPHelpers();
   for(let i = 0; i < selectedBranches.length; i++){
-    const n = selectedBranches[i];
-    const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
-    tipSphere.position.copy(n.end);
-    tipSphere.userData = { type: 'tip', node: n };
-    cpGroup.add(tipSphere);
+    cpGroup.add(makeTipHelper(selectedBranches[i]));
   }
 }
 
@@ -836,6 +840,14 @@ function updateGrowth(dt){
     node.mesh.position.copy(start);
     node.mesh.scale.y = Math.max(p, .001);
     node.mesh.visible = p > .001;
+  }
+
+  for(const s of junctionSpheres){
+    const n = s.userData.node;
+    if(!n) continue;
+    s.position.copy(n._curEnd);
+    const raw = clamp01((state.growthTime - n.growStart) / .8);
+    s.visible = raw > 0.3;
   }
 
   if(leafMat){
@@ -934,6 +946,33 @@ function rebuildLeaves(){
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
   if(leafMat) leafMat.uniforms.uReveal.value = 1.0;
+  rebuildJunctions();
+}
+
+function rebuildJunctions(){
+  for(const s of junctionSpheres) treeGroup.remove(s);
+  junctionSpheres = [];
+  if(!root || !branchMat) return;
+  for(const n of allNodes){
+    if(n.pruned) continue;
+    const hasLivingChildren = n.children.filter(c => !c.pruned).length > 0;
+    const r = hasLivingChildren ? n.rad * 0.7 * 1.25 : n.rad * 0.7;
+    const s = new THREE.Mesh(junctionGeo, branchMat);
+    s.position.copy(n._curEnd || n.end);
+    s.scale.setScalar(r);
+    s.userData.node = n;
+    s.raycast = () => {};
+    n.junctionMesh = s;
+    treeGroup.add(s);
+    junctionSpheres.push(s);
+  }
+}
+
+function updateJunctionForNode(node){
+  if(!node.junctionMesh) return;
+  node.junctionMesh.position.copy(node._curEnd || node.end);
+  const hasLivingChildren = node.children.filter(c => !c.pruned).length > 0;
+  node.junctionMesh.scale.setScalar(hasLivingChildren ? node.rad * 0.7 * 1.25 : node.rad * 0.7);
 }
 
 let _selLeaf = -1;
@@ -953,9 +992,18 @@ function clearLeafSel(){
 function clearBranchSel(){
   for(const n of selectedBranches){
     if(n.mesh) n.mesh.material = branchMat;
+    if(n.parent && n.parent.junctionMesh) n.parent.junctionMesh.material = branchMat;
+    if(n.junctionMesh) n.junctionMesh.material = branchMat;
   }
   selectedBranches = [];
   clearCPHelpers();
+}
+
+function highlightJunctionsForSelection(){
+  for(const n of selectedBranches){
+    if(n.parent && n.parent.junctionMesh) n.parent.junctionMesh.material = highlightMat;
+    if(n.junctionMesh) n.junctionMesh.material = highlightMat;
+  }
 }
 
 function dropSelectedLeaf(){
@@ -1035,10 +1083,12 @@ canvas.addEventListener('click', e => {
       if(last.children.includes(hitNode)){
         selectedBranches.push(hitNode);
         hitNode.mesh.material = highlightMat;
+        highlightJunctionsForSelection();
         showMultiHelpers();
       } else if(hitNode.children.includes(first)){
         selectedBranches.unshift(hitNode);
         hitNode.mesh.material = highlightMat;
+        highlightJunctionsForSelection();
         showMultiHelpers();
       }
     } else {
@@ -1058,6 +1108,7 @@ canvas.addEventListener('click', e => {
       clearBranchSel();
       selectedBranches = [hitNode];
       hitNode.mesh.material = highlightMat;
+      highlightJunctionsForSelection();
       showCPHelpers(hitNode);
     }
     return;
@@ -1138,6 +1189,7 @@ canvas.addEventListener('pointermove', e => {
     }
     rebuildBranchMesh(dragNode);
     cascadePositions(dragNode);
+    updateJunctionForNode(dragNode);
     for(const child of dragNode.children){
       if(!child.pruned && child.mesh){
         child.mesh.position.copy(child.start);
@@ -1195,6 +1247,7 @@ function rebuild(){
     if(c.geometry) c.geometry.dispose();
   }
   fallingDebris.length = 0;
+  junctionSpheres = [];
   selectedBranches = [];
   clearCPHelpers();
   state.growthTime = 0;
@@ -1211,6 +1264,7 @@ function rebuild(){
   allNodes.forEach(n => { n._curEnd = n.start.clone(); });
 
   buildBranches(root, branchMat, treeGroup);
+  rebuildJunctions();
 
   const rng2 = new RNG(state.seed + 7777);
   const leafGeo = buildLeaves(root, state, rng2);
