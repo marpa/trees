@@ -14,11 +14,19 @@
       border-radius: 20px; font: 14px/1.4 Georgia, serif;
       display: none; pointer-events: none; text-align: center;
     }
+    #pruneBtn {
+      position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+      background: rgba(140,40,20,0.9); color: #f0e6d2; padding: 14px 32px;
+      border-radius: 30px; font: bold 16px/1 Georgia, serif; border: none;
+      display: none; cursor: pointer; pointer-events: all; touch-action: manipulation;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.4);
+    }
   </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="pruneHint">Click to select &middot; Click again to add curve point &middot; Drag yellow to curve, orange to move tip &middot; Shift+click to chain &middot; Delete to prune</div>
+<button id="pruneBtn">&#9986; Prune</button>
 <script type="importmap">
 {
   "imports": {
@@ -861,6 +869,11 @@ function updateGrowth(dt){
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const pruneHint = document.getElementById('pruneHint');
+const pruneBtn = document.getElementById('pruneBtn');
+pruneBtn.addEventListener('click', () => {
+  if(_selLeaf >= 0){ dropSelectedLeaf(); }
+  else { pruneSelected(); }
+});
 const fallingDebris = [];
 
 function getSubtree(node){
@@ -898,6 +911,7 @@ function pruneSelected(){
 
   rebuildLeaves();
   if(typeof updateSummary === 'function') updateSummary();
+  updatePruneBtn();
 }
 
 function scheduleRegrowth(parent){
@@ -989,6 +1003,12 @@ function clearLeafSel(){
   }
   _selLeaf = -1;
   _selLeafColor = null;
+  updatePruneBtn();
+}
+
+function updatePruneBtn(){
+  const show = state.pruneMode && (selectedBranches.length > 0 || _selLeaf >= 0);
+  pruneBtn.style.display = show ? 'block' : 'none';
 }
 
 function clearBranchSel(){
@@ -999,6 +1019,7 @@ function clearBranchSel(){
   }
   selectedBranches = [];
   clearCPHelpers();
+  updatePruneBtn();
 }
 
 function highlightJunctionsForSelection(){
@@ -1069,6 +1090,7 @@ canvas.addEventListener('click', e => {
     _selLeaf = idx;
     ca.setXYZ(idx, 0.85, 0.12, 0.08);
     ca.needsUpdate = true;
+    updatePruneBtn();
     return;
   }
 
@@ -1087,11 +1109,13 @@ canvas.addEventListener('click', e => {
         hitNode.mesh.material = highlightMat;
         highlightJunctionsForSelection();
         showMultiHelpers();
+        updatePruneBtn();
       } else if(hitNode.children.includes(first)){
         selectedBranches.unshift(hitNode);
         hitNode.mesh.material = highlightMat;
         highlightJunctionsForSelection();
         showMultiHelpers();
+        updatePruneBtn();
       }
     } else {
       if(selectedBranches.length === 1 && selectedBranches[0] === hitNode){
@@ -1112,6 +1136,7 @@ canvas.addEventListener('click', e => {
       hitNode.mesh.material = highlightMat;
       highlightJunctionsForSelection();
       showCPHelpers(hitNode);
+      updatePruneBtn();
     }
     return;
   }
