@@ -63,12 +63,12 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
-  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
-  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
-  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
-  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
-  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, droop:.42, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, apical:.1, bareTrunk:.15, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
+  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  apical:.8, bareTrunk:.1, leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
+  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, apical:.15, bareTrunk:.2, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
+  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, apical:.05, bareTrunk:0, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
+  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, apical:0, bareTrunk:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
+  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, droop:.42, apical:.1, bareTrunk:.15, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
 };
 
 /* ───────── shaders ───────── */
@@ -385,22 +385,45 @@ function generateTree(p, rng){
         { t: cp2t, dx: w1b*Math.cos(d1)*a1 + w2b*Math.cos(d2)*a2, dy: 0, dz: w1b*Math.sin(d1)*a1 + w2b*Math.sin(d2)*a2 },
       ],
     };
+    const bareDepth = Math.floor((p.bareTrunk || 0) * p.maxDepth);
     if(depth < p.maxDepth && count < MAX_NODES){
-      const n = rng.randInt(p.minBr, p.maxBr);
-      for(let i = 0; i < n && count < MAX_NODES; i++){
-        const ang = rng.range(p.minAng, p.maxAng) * DEG;
+      if(depth < bareDepth){
+        // Bare trunk: single continuation with slight wobble
+        const ang = rng.range(0, 5) * DEG;
         const roll = rng.range(0, Math.PI * 2);
         const perp = new THREE.Vector3();
         if(Math.abs(dir.y) < .99) perp.crossVectors(dir, UP).normalize();
         else perp.crossVectors(dir, new THREE.Vector3(1,0,0)).normalize();
         perp.applyAxisAngle(dir, roll);
         const cDir = dir.clone().applyAxisAngle(perp, ang);
-        cDir.y -= p.droop * (depth + 1) * .08;
         cDir.normalize();
-        const cLen = len * p.lenRatio * rng.range(.8, 1.2);
+        const cLen = len * p.lenRatio * rng.range(.95, 1.05);
         const cRad = rad * p.taper;
         const child = makeNode(node.end, cDir, cLen, cRad, depth+1);
         if(child){ child.parent = node; node.children.push(child); }
+      } else {
+        const n = rng.randInt(p.minBr, p.maxBr);
+        for(let i = 0; i < n && count < MAX_NODES; i++){
+          const isLeader = (i === 0 && (p.apical || 0) > 0);
+          const angMul = isLeader ? (1 - p.apical * 0.85) : 1;
+          const ang = rng.range(p.minAng, p.maxAng) * DEG * angMul;
+          const roll = rng.range(0, Math.PI * 2);
+          const perp = new THREE.Vector3();
+          if(Math.abs(dir.y) < .99) perp.crossVectors(dir, UP).normalize();
+          else perp.crossVectors(dir, new THREE.Vector3(1,0,0)).normalize();
+          perp.applyAxisAngle(dir, roll);
+          const cDir = dir.clone().applyAxisAngle(perp, ang);
+          cDir.y -= p.droop * (depth + 1) * .08;
+          cDir.normalize();
+          let cLen = len * p.lenRatio * rng.range(.8, 1.2);
+          let cRad = rad * p.taper;
+          if(isLeader){
+            cLen *= 1 + p.apical * 0.3;
+            cRad *= 1 + p.apical * 0.2;
+          }
+          const child = makeNode(node.end, cDir, cLen, cRad, depth+1);
+          if(child){ child.parent = node; node.children.push(child); }
+        }
       }
     }
     return node;
@@ -1301,6 +1324,8 @@ structCtrls.push(fStruct.add(state,'minAng',5,60,1).name('Min Angle'));
 structCtrls.push(fStruct.add(state,'maxAng',15,90,1).name('Max Angle'));
 structCtrls.push(fStruct.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
 structCtrls.push(fStruct.add(state,'droop',0,1,.01).name('Droop'));
+structCtrls.push(fStruct.add(state,'apical',0,1,.01).name('Apical Dominance'));
+structCtrls.push(fStruct.add(state,'bareTrunk',0,1,.01).name('Bare Trunk'));
 structCtrls.forEach(c => c.onChange(() => rebuild()));
 fStruct.close();
 
