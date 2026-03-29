@@ -63,12 +63,12 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, droop:.08, apical:.1, bareTrunk:.15, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
-  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, droop:.0,  apical:.8, bareTrunk:.1, leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
-  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, droop:.55, apical:.15, bareTrunk:.2, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
-  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, droop:.18, apical:.05, bareTrunk:0, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
-  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, droop:.04, apical:0, bareTrunk:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
-  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, droop:.42, apical:.1, bareTrunk:.15, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, taperCurve:'linear', droop:.08, tropism:-.1, apical:.1, bareTrunk:.15, curvature:.4, crownShape:'sphere', phyllotaxis:137.5, variance:.6, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
+  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.0,  tropism:-.3, apical:.8, bareTrunk:.1, curvature:.1, crownShape:'cone', phyllotaxis:137.5, variance:.3, leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
+  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, taperCurve:'linear', droop:.85, tropism:.3, apical:.15, bareTrunk:.2, curvature:.6, crownShape:'weeping', phyllotaxis:0, variance:.5, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
+  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.18, tropism:0, apical:.05, bareTrunk:0, curvature:.7, crownShape:'sphere', phyllotaxis:0, variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
+  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', droop:.04, tropism:-.2, apical:0, bareTrunk:.4, curvature:.2, crownShape:'umbrella', phyllotaxis:90, variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
+  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, taperCurve:'linear', droop:.42, tropism:0, apical:.1, bareTrunk:.15, curvature:.5, crownShape:'sphere', phyllotaxis:137.5, variance:.5, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
 };
 
 /* ───────── shaders ───────── */
@@ -353,18 +353,49 @@ function makeLeafTex(shape = 'oak'){
 
 let nodeId = 0;
 
+function crownMaxRadius(shape, y, H, R){
+  const t = clamp01(y / H);
+  switch(shape){
+    case 'cone':    return R * (1 - t * 0.95);
+    case 'sphere':  return R * Math.sin(clamp01(t) * Math.PI);
+    case 'column':  return R * 0.35;
+    case 'umbrella':{
+      const s = clamp01((t - 0.45) / 0.35);
+      return R * (0.12 + 0.88 * s * s);
+    }
+    case 'weeping': return R * 1.4 * Math.sin(clamp01(t * 0.4 + 0.15) * Math.PI);
+    default:        return Infinity;
+  }
+}
+
+function taperAtDepth(baseTaper, depth, maxDepth, curve){
+  const t = clamp01(depth / Math.max(maxDepth, 1));
+  switch(curve){
+    case 'exponential': return baseTaper * (1 - t * 0.35);
+    case 'stepped':{
+      const step = Math.floor(t * 3) / 3;
+      return baseTaper * (1 - step * 0.25);
+    }
+    default: return baseTaper; // linear — flat multiplier (original behavior)
+  }
+}
+
 function generateTree(p, rng){
   const MAX_NODES = 600;
   let count = 0;
+  const treeH = p.trunkLen * (1 + p.lenRatio * p.maxDepth * 0.55);
+  const crownR = treeH * 0.5;
 
   function makeNode(start, dir, len, rad, depth){
     if(count >= MAX_NODES) return null;
     count++;
     const seed = (nodeId * 137 + 42);
     const br = new RNG(seed);
-    const a1 = len * br.range(.04, .14);
+    const curv = p.curvature || 0;
+    const curvScale = 0.1 + curv * 2.4;
+    const a1 = len * br.range(.04, .14) * curvScale;
     const d1 = br.range(0, Math.PI * 2);
-    const a2 = len * br.range(.03, .10);
+    const a2 = len * br.range(.03, .10) * curvScale;
     const d2 = br.range(0, Math.PI * 2);
     const cp1t = 0.33, cp2t = 0.66;
     const w1a = Math.sin(cp1t * Math.PI), w2a = Math.sin(cp1t * 2 * Math.PI);
@@ -398,28 +429,51 @@ function generateTree(p, rng){
         const cDir = dir.clone().applyAxisAngle(perp, ang);
         cDir.normalize();
         const cLen = len * p.lenRatio * rng.range(.95, 1.05);
-        const cRad = rad * p.taper;
+        const cRad = rad * taperAtDepth(p.taper, depth, p.maxDepth, p.taperCurve);
         const child = makeNode(node.end, cDir, cLen, cRad, depth+1);
         if(child){ child.parent = node; node.children.push(child); }
       } else {
         const n = rng.randInt(p.minBr, p.maxBr);
+        const phyllo = (p.phyllotaxis || 0) * DEG;
+        const baseRoll = rng.range(0, Math.PI * 2);
         for(let i = 0; i < n && count < MAX_NODES; i++){
           const isLeader = (i === 0 && (p.apical || 0) > 0);
           const angMul = isLeader ? (1 - p.apical * 0.85) : 1;
-          const ang = rng.range(p.minAng, p.maxAng) * DEG * angMul;
-          const roll = rng.range(0, Math.PI * 2);
+          const v = p.variance || 0.5;
+          const angMid = (p.minAng + p.maxAng) * 0.5;
+          const angHalf = (p.maxAng - p.minAng) * 0.5;
+          const ang = (angMid + rng.range(-angHalf, angHalf) * v) * DEG * angMul;
+          const roll = phyllo > 0
+            ? baseRoll + i * phyllo + rng.range(-0.15, 0.15)
+            : rng.range(0, Math.PI * 2);
           const perp = new THREE.Vector3();
           if(Math.abs(dir.y) < .99) perp.crossVectors(dir, UP).normalize();
           else perp.crossVectors(dir, new THREE.Vector3(1,0,0)).normalize();
           perp.applyAxisAngle(dir, roll);
           const cDir = dir.clone().applyAxisAngle(perp, ang);
           cDir.y -= p.droop * (depth + 1) * .08;
+          cDir.y -= (p.tropism || 0) * 0.25;
           cDir.normalize();
-          let cLen = len * p.lenRatio * rng.range(.8, 1.2);
-          let cRad = rad * p.taper;
+          const lenVar = v * 0.2;
+          let cLen = len * p.lenRatio * rng.range(1 - lenVar, 1 + lenVar);
+          let cRad = rad * taperAtDepth(p.taper, depth, p.maxDepth, p.taperCurve);
           if(isLeader){
             cLen *= 1 + p.apical * 0.3;
             cRad *= 1 + p.apical * 0.2;
+          }
+          // Crown envelope: redirect branches that would exit the shape
+          if(p.crownShape && p.crownShape !== 'none'){
+            const cEnd = node.end.clone().addScaledVector(cDir, cLen);
+            const hDist = Math.sqrt(cEnd.x * cEnd.x + cEnd.z * cEnd.z);
+            const maxR = crownMaxRadius(p.crownShape, cEnd.y, treeH, crownR);
+            if(hDist > maxR){
+              const pull = (hDist - maxR) / hDist;
+              cDir.x -= cEnd.x * pull * 0.6;
+              cDir.z -= cEnd.z * pull * 0.6;
+              if(p.crownShape === 'weeping') cDir.y -= pull * 0.1;
+              else cDir.y += pull * 0.15;
+              cDir.normalize();
+            }
           }
           const child = makeNode(node.end, cDir, cLen, cRad, depth+1);
           if(child){ child.parent = node; node.children.push(child); }
@@ -1324,8 +1378,14 @@ structCtrls.push(fStruct.add(state,'minAng',5,60,1).name('Min Angle'));
 structCtrls.push(fStruct.add(state,'maxAng',15,90,1).name('Max Angle'));
 structCtrls.push(fStruct.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
 structCtrls.push(fStruct.add(state,'droop',0,1,.01).name('Droop'));
+structCtrls.push(fStruct.add(state,'tropism',-1,1,.01).name('Tropism'));
 structCtrls.push(fStruct.add(state,'apical',0,1,.01).name('Apical Dominance'));
 structCtrls.push(fStruct.add(state,'bareTrunk',0,1,.01).name('Bare Trunk'));
+structCtrls.push(fStruct.add(state,'curvature',0,1,.01).name('Curvature'));
+structCtrls.push(fStruct.add(state,'taperCurve',['linear','exponential','stepped']).name('Taper Curve'));
+structCtrls.push(fStruct.add(state,'crownShape',['none','cone','sphere','column','umbrella','weeping']).name('Crown Shape'));
+structCtrls.push(fStruct.add(state,'phyllotaxis',0,360,0.5).name('Phyllotaxis'));
+structCtrls.push(fStruct.add(state,'variance',0,1,.01).name('Variance'));
 structCtrls.forEach(c => c.onChange(() => rebuild()));
 fStruct.close();
 
