@@ -63,12 +63,12 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 /* ───────── species presets ───────── */
 
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, taperCurve:'linear', droop:.08, tropism:-.1, apical:.1, bareTrunk:.15, curvature:.4, crownShape:'sphere', phyllotaxis:137.5, variance:.6, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
-  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.0,  tropism:-.3, apical:.8, bareTrunk:.1, curvature:.1, crownShape:'cone', phyllotaxis:137.5, variance:.3, leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
-  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, taperCurve:'linear', droop:.85, tropism:.3, apical:.15, bareTrunk:.2, curvature:.6, crownShape:'weeping', phyllotaxis:0, variance:.5, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
-  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.18, tropism:0, apical:.05, bareTrunk:0, curvature:.7, crownShape:'sphere', phyllotaxis:0, variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
-  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', droop:.04, tropism:-.2, apical:0, bareTrunk:.4, curvature:.2, crownShape:'umbrella', phyllotaxis:90, variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
-  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, taperCurve:'linear', droop:.42, tropism:0, apical:.1, bareTrunk:.15, curvature:.5, crownShape:'sphere', phyllotaxis:137.5, variance:.5, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
+  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, taperCurve:'linear', droop:.08, tropism:-.1, plagiotropism:.1, apical:.1, bareTrunk:.15, curvature:.4, crownShape:'sphere', phyllotaxis:137.5, variance:.6, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
+  Pine:   { maxDepth:7, minBr:2, maxBr:3, minAng:50, maxAng:75, lenRatio:.72, trunkLen:4.0, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.0,  tropism:-.3, plagiotropism:.7, apical:.8, bareTrunk:.1, curvature:.1, crownShape:'cone', phyllotaxis:137.5, variance:.3, leafDen:14, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
+  Willow: { maxDepth:5, minBr:2, maxBr:3, minAng:25, maxAng:45, lenRatio:.78, trunkLen:3.0, trunkRad:.22, taper:.62, taperCurve:'linear', droop:.85, tropism:.3, plagiotropism:0, apical:.15, bareTrunk:.2, curvature:.6, crownShape:'weeping', phyllotaxis:0, variance:.5, leafDen:18, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
+  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.18, tropism:0, plagiotropism:.2, apical:.05, bareTrunk:0, curvature:.7, crownShape:'sphere', phyllotaxis:0, variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
+  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', droop:.04, tropism:-.2, plagiotropism:.3, apical:0, bareTrunk:.4, curvature:.2, crownShape:'umbrella', phyllotaxis:90, variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
+  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, taperCurve:'linear', droop:.42, tropism:0, plagiotropism:.4, apical:.1, bareTrunk:.15, curvature:.5, crownShape:'sphere', phyllotaxis:137.5, variance:.5, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
 };
 
 /* ───────── shaders ───────── */
@@ -450,9 +450,18 @@ function generateTree(p, rng){
           const angMid = (p.minAng + p.maxAng) * 0.5;
           const angHalf = (p.maxAng - p.minAng) * 0.5;
           const ang = (angMid + rng.range(-angHalf, angHalf) * v) * DEG * angMul;
-          const roll = phyllo > 0
+          let roll = phyllo > 0
             ? baseRoll + i * phyllo + rng.range(-0.15, 0.15)
             : rng.range(0, Math.PI * 2);
+          // Plagiotropic–orthotropic axis: bias roll toward horizontal (>0) or vertical (<0).
+          // Only affects sub-branches (past bareDepth+1) so the main scaffold stays 3D.
+          const plagio = p.plagiotropism || 0;
+          if(plagio !== 0 && depth >= bareDepth + 2 && !isLeader){
+            const strength = Math.abs(plagio);
+            const snapBase = plagio > 0 ? 0 : Math.PI * 0.5;
+            const nearest = Math.round((roll - snapBase) / Math.PI) * Math.PI + snapBase;
+            roll = roll + (nearest - roll) * strength * 0.55 + rng.range(-0.25, 0.25) * (1 - strength * 0.5);
+          }
           const perp = new THREE.Vector3();
           if(Math.abs(dir.y) < .99) perp.crossVectors(dir, UP).normalize();
           else perp.crossVectors(dir, new THREE.Vector3(1,0,0)).normalize();
@@ -460,6 +469,16 @@ function generateTree(p, rng){
           const cDir = dir.clone().applyAxisAngle(perp, ang);
           cDir.y -= p.droop * (depth + 1) * .08;
           cDir.y -= (p.tropism || 0) * 0.25;
+          // Plagiotropic (>0) dampens the vertical component toward horizontal;
+          // orthotropic (<0) amplifies it toward vertical. Skip leader and top scaffold.
+          if(plagio !== 0 && !isLeader && depth >= bareDepth + 1){
+            if(plagio > 0){
+              cDir.y -= cDir.y * plagio * 0.5;
+            } else {
+              const sign = cDir.y >= 0 ? 1 : -1;
+              cDir.y += sign * Math.abs(plagio) * 0.3;
+            }
+          }
           cDir.normalize();
           const lenVar = v * 0.2;
           let cLen = len * p.lenRatio * rng.range(1 - lenVar, 1 + lenVar);
@@ -1464,6 +1483,7 @@ structCtrls.push(fStruct.add(state,'maxAng',15,90,1).name('Max Angle'));
 structCtrls.push(fStruct.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
 structCtrls.push(fStruct.add(state,'droop',0,1,.01).name('Droop'));
 structCtrls.push(fStruct.add(state,'tropism',-1,1,.01).name('Tropism'));
+structCtrls.push(fStruct.add(state,'plagiotropism',-1,1,.01).name('Plagiotropism'));
 structCtrls.push(fStruct.add(state,'apical',0,1,.01).name('Apical Dominance'));
 structCtrls.push(fStruct.add(state,'bareTrunk',0,1,.01).name('Bare Trunk'));
 structCtrls.push(fStruct.add(state,'curvature',0,1,.01).name('Curvature'));
