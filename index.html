@@ -74,10 +74,13 @@ const PRESETS = {
 /* ───────── shaders ───────── */
 
 const branchVert = /* glsl */`
+attribute float aGrowEnd;
 varying vec3 vNormal, vWorldPos;
 varying vec2 vUv;
+varying float vGrowEnd;
 void main(){
   vUv = uv;
+  vGrowEnd = aGrowEnd;
   vNormal = normalize(normalMatrix * normal);
   vec4 wp = modelMatrix * vec4(position,1.0);
   vWorldPos = wp.xyz;
@@ -86,12 +89,16 @@ void main(){
 
 const branchFrag = /* glsl */`
 uniform vec3 uBase, uTip;
+uniform float uGrowTime;
 varying vec3 vNormal, vWorldPos;
 varying vec2 vUv;
+varying float vGrowEnd;
 
 float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 
 void main(){
+  if(vGrowEnd > uGrowTime + 0.05) discard;
+
   vec3 col = mix(uBase, uTip, vUv.y);
   col += (hash(vWorldPos*6.0)-.5)*.12;
 
@@ -503,46 +510,154 @@ function buildNodeSpline(node){
   return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
 }
 
-function makeSplineBranchGeo(node){
+/** Far end of the tube: match child branch bases (avoids waist/pinch at forks). Terminals keep a gentle taper. */
+function branchEndRadius(node){
+  const living = node.children.filter(c => !c.pruned);
+  if(!living.length) return node.rad * BRANCH_TIP_R;
+  return Math.max(...living.map(c => c.rad));
+}
+
+/** Simple per-node tube (local space) — used for highlight overlays and falling debris. */
+function makeNodeGeo(node){
   const hSegs = 12, rSegs = 12;
   const spline = buildNodeSpline(node);
-  const verts = [], norms = [], uvs = [], indices = [];
+  const verts = [], norms = [], uvs = [], indices = [], growEnds = [];
   const tmp = new THREE.Vector3();
-
+  const rTip = branchEndRadius(node);
   for(let j = 0; j <= hSegs; j++){
     const t = j / hSegs;
     const center = spline.getPointAt(t);
     const tangent = spline.getTangentAt(t).normalize();
-
     let normal = new THREE.Vector3();
     if(Math.abs(tangent.y) < 0.99) normal.crossVectors(tangent, UP).normalize();
     else normal.crossVectors(tangent, new THREE.Vector3(1,0,0)).normalize();
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
-
-    const radius = THREE.MathUtils.lerp(node.rad, node.rad * 0.7, t);
-
+    const radius = THREE.MathUtils.lerp(node.rad, rTip, t);
     for(let i = 0; i <= rSegs; i++){
       const angle = (i / rSegs) * Math.PI * 2;
       const cos = Math.cos(angle), sin = Math.sin(angle);
-      tmp.copy(center)
-        .addScaledVector(normal, cos * radius)
-        .addScaledVector(binormal, sin * radius);
+      tmp.copy(center).addScaledVector(normal, cos * radius).addScaledVector(binormal, sin * radius);
       verts.push(tmp.x, tmp.y, tmp.z);
-      const n = new THREE.Vector3()
-        .addScaledVector(normal, cos)
-        .addScaledVector(binormal, sin)
-        .normalize();
+      const n = new THREE.Vector3().addScaledVector(normal, cos).addScaledVector(binormal, sin).normalize();
       norms.push(n.x, n.y, n.z);
       uvs.push(i / rSegs, t);
+      growEnds.push(0);
     }
   }
-
   for(let j = 0; j < hSegs; j++){
     for(let i = 0; i < rSegs; i++){
       const a = j * (rSegs + 1) + i;
       const b = a + rSegs + 1;
-      indices.push(a, b, a + 1);
-      indices.push(a + 1, b, b + 1);
+      indices.push(a, b, a + 1); indices.push(a + 1, b, b + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(growEnds, 1));
+  geo.setIndex(indices);
+  return geo;
+}
+
+/* ───────── path-based mesh building ───────── */
+
+function findPaths(root){
+  const paths = [];
+  function walk(node){
+    if(node.pruned) return;
+    const path = [node];
+    let cur = node;
+    while(true){
+      const living = cur.children.filter(c => !c.pruned);
+      if(living.length === 1){ cur = living[0]; path.push(cur); }
+      else break;
+    }
+    paths.push(path);
+    for(const child of cur.children.filter(c => !c.pruned)) walk(child);
+  }
+  walk(root);
+  return paths;
+}
+
+function makePathGeo(path){
+  const RINGS = 16, rSegs = 16, GROW_DUR = 0.8;
+  const verts = [], norms = [], uvs = [], indices = [], growEnds = [];
+  const tmp = new THREE.Vector3();
+
+  const firstNode = path[0];
+  const hasCollar = !!firstNode.parent;
+  const collarRings = hasCollar ? 5 : 0;
+
+  let collarBackDirW, parentDirW, collarDepth = 0, collarBaseR = 0;
+  if(hasCollar){
+    const dot = clamp01(firstNode.dir.dot(firstNode.parent.dir));
+    const forkAngle = Math.acos(dot);
+    collarDepth = Math.min(firstNode.rad * (0.4 + forkAngle * 1.8), firstNode.len * 0.25);
+    collarBaseR = branchEndRadius(firstNode.parent) + firstNode.rad * Math.sin(forkAngle) * 0.3;
+    parentDirW = firstNode.parent.dir.clone().normalize();
+    collarBackDirW = parentDirW.clone().negate();
+  }
+
+  let totalLen = 0;
+  for(const n of path) totalLen += n.len;
+
+  let ringCount = 0;
+
+  function addRing(center, tangent, radius, uv_v, growEnd){
+    let normal = new THREE.Vector3();
+    if(Math.abs(tangent.y) < 0.99) normal.crossVectors(tangent, UP).normalize();
+    else normal.crossVectors(tangent, new THREE.Vector3(1,0,0)).normalize();
+    const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+    for(let i = 0; i <= rSegs; i++){
+      const angle = (i / rSegs) * Math.PI * 2;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      tmp.copy(center).addScaledVector(normal, cos * radius).addScaledVector(binormal, sin * radius);
+      verts.push(tmp.x, tmp.y, tmp.z);
+      const n = new THREE.Vector3().addScaledVector(normal, cos).addScaledVector(binormal, sin).normalize();
+      norms.push(n.x, n.y, n.z);
+      uvs.push(i / rSegs, uv_v);
+      growEnds.push(growEnd);
+    }
+    ringCount++;
+  }
+
+  if(hasCollar){
+    for(let j = 0; j < collarRings; j++){
+      const ct = 1 - j / collarRings;
+      const center = firstNode.start.clone().addScaledVector(collarBackDirW, collarDepth * ct);
+      const tangent = firstNode.dir.clone().lerp(parentDirW.clone(), ct).normalize();
+      const radius = THREE.MathUtils.lerp(firstNode.rad, collarBaseR, ct * ct * ct);
+      addRing(center, tangent, radius, -ct * 0.01, firstNode.growStart);
+    }
+  }
+
+  let accLen = 0;
+  for(let ni = 0; ni < path.length; ni++){
+    const node = path[ni];
+    const nodeSpline = buildNodeSpline(node);
+    const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
+    const rTip = branchEndRadius(node);
+    const startK = (ni === 0) ? 0 : 1;
+    for(let k = startK; k <= RINGS; k++){
+      const t = k / RINGS;
+      const local = nodeSpline.getPointAt(t);
+      const tang = nodeSpline.getTangentAt(t).normalize();
+      local.applyQuaternion(q); tang.applyQuaternion(q).normalize();
+      const center = node.start.clone().add(local);
+      const radius = THREE.MathUtils.lerp(node.rad, rTip, t);
+      const uv_v = (accLen + t * node.len) / totalLen;
+      const growEnd = node.growStart + t * GROW_DUR;
+      addRing(center, tang, radius, uv_v, growEnd);
+    }
+    accLen += node.len;
+  }
+
+  for(let j = 0; j < ringCount - 1; j++){
+    for(let i = 0; i < rSegs; i++){
+      const a = j * (rSegs + 1) + i;
+      const b = a + rSegs + 1;
+      indices.push(a, b, a + 1); indices.push(a + 1, b, b + 1);
     }
   }
 
@@ -550,23 +665,66 @@ function makeSplineBranchGeo(node){
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(growEnds, 1));
   geo.setIndex(indices);
   return geo;
 }
 
-function buildBranches(root, material, group){
-  const all = collectBFS(root);
-  for(const n of all){
-    const g = makeSplineBranchGeo(n);
-    const m = new THREE.Mesh(g, material);
-    const q = new THREE.Quaternion().setFromUnitVectors(UP, n.dir);
-    m.quaternion.copy(q);
-    m.position.copy(n.start);
-    m.userData.node = n;
-    n.mesh = m;
-    group.add(m);
+let allPaths = [];
+let highlightOverlays = [];
+
+function buildPathMeshes(root, material, group){
+  const paths = findPaths(root);
+  allPaths = [];
+  for(const path of paths){
+    const geo = makePathGeo(path);
+    const mesh = new THREE.Mesh(geo, material);
+    let totalLen = 0;
+    for(const n of path) totalLen += n.len;
+    let accLen = 0;
+    const nodeRanges = [];
+    for(const n of path){
+      const uvStart = accLen / totalLen;
+      accLen += n.len;
+      const uvEnd = accLen / totalLen;
+      nodeRanges.push({ node: n, uvStart, uvEnd });
+    }
+    mesh.userData = { pathNodes: path, nodeRanges };
+    group.add(mesh);
+    allPaths.push({ nodes: path, mesh });
   }
-  return all;
+}
+
+function rebuildAllPaths(){
+  for(const p of allPaths){ treeGroup.remove(p.mesh); p.mesh.geometry.dispose(); }
+  allPaths = [];
+  if(root) buildPathMeshes(root, branchMat, treeGroup);
+}
+
+function nodeFromHit(hit){
+  const ranges = hit.object.userData.nodeRanges;
+  if(!ranges || !hit.uv) return null;
+  const v = hit.uv.y;
+  for(const r of ranges){
+    if(v >= r.uvStart - 0.001 && v <= r.uvEnd + 0.001) return r.node;
+  }
+  return ranges.length ? ranges[ranges.length - 1].node : null;
+}
+
+function addHighlightOverlay(node){
+  const geo = makeNodeGeo(node);
+  const m = new THREE.Mesh(geo, highlightMat);
+  m.quaternion.setFromUnitVectors(UP, node.dir);
+  m.position.copy(node.start);
+  m.renderOrder = 1;
+  m.userData._highlightNode = node;
+  treeGroup.add(m);
+  highlightOverlays.push(m);
+}
+
+function clearHighlightOverlays(){
+  for(const m of highlightOverlays){ treeGroup.remove(m); m.geometry.dispose(); }
+  highlightOverlays = [];
 }
 
 function bentPoint(node, t, rng2){
@@ -576,7 +734,8 @@ function bentPoint(node, t, rng2){
   const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
   local.applyQuaternion(q);
 
-  const radAtT = node.rad * (1 - tc * 0.3);
+  const rTip = branchEndRadius(node);
+  const radAtT = THREE.MathUtils.lerp(node.rad, rTip, tc);
   const angle = rng2.range(0, Math.PI * 2);
   const radOff = rng2.range(radAtT * 0.5, radAtT * 1.5 + 0.06);
   const perp = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
@@ -789,8 +948,8 @@ scene.add(treeGroup);
 let allNodes = [];
 let root = null;
 let leafPoints = null;
-let junctionSpheres = [];
-const junctionGeo = new THREE.SphereGeometry(1, 10, 10);
+// Tube tip radius (fraction of node.rad) along each branch spline.
+const BRANCH_TIP_R = 0.74;
 
 const state = {
   species: 'Oak',
@@ -811,7 +970,7 @@ let leafTex = makeLeafTex('oak');
 
 function makeBranchMat(base, tip){
   return new THREE.ShaderMaterial({
-    uniforms:{ uBase:{value:new THREE.Color(base)}, uTip:{value:new THREE.Color(tip)} },
+    uniforms:{ uBase:{value:new THREE.Color(base)}, uTip:{value:new THREE.Color(tip)}, uGrowTime:{value:99} },
     vertexShader: branchVert, fragmentShader: branchFrag,
   });
 }
@@ -825,18 +984,16 @@ function makeLeafMat(){
 }
 
 highlightMat = new THREE.MeshStandardMaterial({ color:'#ff6633', emissive:'#ff3300', emissiveIntensity:.4 });
-const cpMat = new THREE.MeshStandardMaterial({ color:'#ffcc00', emissive:'#ffaa00', emissiveIntensity:.6, depthTest:false });
-const endpointMat = new THREE.MeshStandardMaterial({ color:'#ff6600', emissive:'#ff4400', emissiveIntensity:.7, depthTest:false });
-const cpGeo = new THREE.SphereGeometry(0.06, 8, 8);
-const endpointGeo = new THREE.SphereGeometry(0.08, 10, 10);
+const cpMat = new THREE.MeshBasicMaterial({ color:'#ffcc00', depthTest:false, depthWrite:false, transparent:true });
+const endpointMat = new THREE.MeshBasicMaterial({ color:'#ff6600', depthTest:false, depthWrite:false, transparent:true });
+const cpGeo = new THREE.SphereGeometry(0.1, 12, 12);
+const endpointGeo = new THREE.SphereGeometry(0.12, 14, 14);
 const cpGroup = new THREE.Group();
+cpGroup.renderOrder = 9999;
 scene.add(cpGroup);
 
 function rebuildBranchMesh(node){
-  if(!node.mesh) return;
-  const oldGeo = node.mesh.geometry;
-  node.mesh.geometry = makeSplineBranchGeo(node);
-  oldGeo.dispose();
+  rebuildAllPaths();
 }
 
 function cpWorldPos(node, cp){
@@ -852,9 +1009,6 @@ function cascadePositions(node){
     if(child.pruned) continue;
     child.start.copy(node.end);
     child.end.copy(child.start.clone().addScaledVector(child.dir, child.len));
-    if(child.mesh){
-      child.mesh.position.copy(child.start);
-    }
     cascadePositions(child);
   }
 }
@@ -862,9 +1016,10 @@ function cascadePositions(node){
 function makeTipHelper(node){
   const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
   tipSphere.position.copy(node.end);
-  const jRadius = node.rad * 0.7 * 1.25;
-  if(jRadius > 0.08) tipSphere.scale.setScalar(jRadius / 0.08);
+  const jRadius = Math.max(node.rad * BRANCH_TIP_R * 1.5, 0.12);
+  tipSphere.scale.setScalar(jRadius / 0.12);
   tipSphere.userData = { type: 'tip', node };
+  tipSphere.renderOrder = 9999;
   return tipSphere;
 }
 
@@ -874,6 +1029,7 @@ function showCPHelpers(node){
     const m = new THREE.Mesh(cpGeo, cpMat);
     m.position.copy(cpWorldPos(node, cp));
     m.userData = { type: 'cp', cp, node };
+    m.renderOrder = 9999;
     cpGroup.add(m);
   }
   cpGroup.add(makeTipHelper(node));
@@ -907,25 +1063,7 @@ function updateGrowth(dt){
   if(!root || !state.playing) return;
   state.growthTime += dt * state.growSpeed;
 
-  const gd = .8;
-  for(const node of allNodes){
-    if(node.pruned || !node.mesh) continue;
-    const raw = clamp01((state.growthTime - node.growStart) / gd);
-    const p = easeOut(raw);
-    const start = node.parent ? node.parent._curEnd : node.start;
-    node._curEnd = start.clone().addScaledVector(node.dir, node.len * p);
-    node.mesh.position.copy(start);
-    node.mesh.scale.y = Math.max(p, .001);
-    node.mesh.visible = p > .001;
-  }
-
-  for(const s of junctionSpheres){
-    const n = s.userData.node;
-    if(!n) continue;
-    s.position.copy(n._curEnd);
-    const raw = clamp01((state.growthTime - n.growStart) / .8);
-    s.visible = raw > 0.3;
-  }
+  if(branchMat) branchMat.uniforms.uGrowTime.value = state.growthTime;
 
   if(leafMat){
     const maxGrow = state.maxDepth * .5 + .8;
@@ -955,24 +1093,27 @@ function pruneSelected(){
 
   for(const n of sub){
     n.pruned = true;
-    if(n.mesh){
-      const worldPos = new THREE.Vector3();
-      n.mesh.getWorldPosition(worldPos);
-      treeGroup.remove(n.mesh);
-      scene.add(n.mesh);
-      n.mesh.position.copy(worldPos);
-      fallingDebris.push({
-        mesh: n.mesh,
-        vel: new THREE.Vector3((Math.random()-.5)*.5, .5, (Math.random()-.5)*.5),
-        rot: new THREE.Vector3((Math.random()-.5)*2, (Math.random()-.5)*2, 0),
-        life: 2.0,
-      });
-    }
+    const geo = makeNodeGeo(n);
+    const debrisMat = new THREE.MeshStandardMaterial({
+      color: state.trunkCol, roughness: .9, transparent: true,
+    });
+    const m = new THREE.Mesh(geo, debrisMat);
+    m.quaternion.setFromUnitVectors(UP, n.dir);
+    m.position.copy(n.start);
+    scene.add(m);
+    fallingDebris.push({
+      mesh: m,
+      vel: new THREE.Vector3((Math.random()-.5)*.5, .5, (Math.random()-.5)*.5),
+      rot: new THREE.Vector3((Math.random()-.5)*2, (Math.random()-.5)*2, 0),
+      life: 2.0,
+    });
   }
 
   sel.parent.children = sel.parent.children.filter(c => c !== sel);
   selectedBranches = [];
+  clearHighlightOverlays();
 
+  rebuildAllPaths();
   rebuildLeaves();
 }
 
@@ -996,22 +1137,14 @@ function scheduleRegrowth(parent){
     const child = {
       id: nodeId++, start: parent.end.clone(), dir: cDir, len: cLen, rad: cRad,
       depth: parent.depth+1, end: parent.end.clone().addScaledVector(cDir, cLen),
-      children:[], parent, pruned:false, mesh:null,
-      growStart: state.growthTime, _curEnd: parent.end.clone(),
+      children:[], parent, pruned:false,
+      growStart: state.growthTime,
       controlPoints: [],
     };
     parent.children.push(child);
     allNodes.push(child);
-
-    const g = makeSplineBranchGeo(child);
-    const m = new THREE.Mesh(g, branchMat);
-    m.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(UP, cDir));
-    m.position.copy(parent._curEnd || parent.end);
-    m.userData.node = child;
-    child.mesh = m;
-    m.scale.y = .001;
-    treeGroup.add(m);
   }
+  rebuildAllPaths();
   rebuildLeaves();
 }
 
@@ -1023,33 +1156,6 @@ function rebuildLeaves(){
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
   if(leafMat) leafMat.uniforms.uReveal.value = 1.0;
-  rebuildJunctions();
-}
-
-function rebuildJunctions(){
-  for(const s of junctionSpheres) treeGroup.remove(s);
-  junctionSpheres = [];
-  if(!root || !branchMat) return;
-  for(const n of allNodes){
-    if(n.pruned) continue;
-    const hasLivingChildren = n.children.filter(c => !c.pruned).length > 0;
-    const r = hasLivingChildren ? n.rad * 0.7 * 1.25 : n.rad * 0.7;
-    const s = new THREE.Mesh(junctionGeo, branchMat);
-    s.position.copy(n._curEnd || n.end);
-    s.scale.setScalar(r);
-    s.userData.node = n;
-    s.raycast = () => {};
-    n.junctionMesh = s;
-    treeGroup.add(s);
-    junctionSpheres.push(s);
-  }
-}
-
-function updateJunctionForNode(node){
-  if(!node.junctionMesh) return;
-  node.junctionMesh.position.copy(node._curEnd || node.end);
-  const hasLivingChildren = node.children.filter(c => !c.pruned).length > 0;
-  node.junctionMesh.scale.setScalar(hasLivingChildren ? node.rad * 0.7 * 1.25 : node.rad * 0.7);
 }
 
 let _selLeaf = -1;
@@ -1067,20 +1173,9 @@ function clearLeafSel(){
 }
 
 function clearBranchSel(){
-  for(const n of selectedBranches){
-    if(n.mesh) n.mesh.material = branchMat;
-    if(n.parent && n.parent.junctionMesh) n.parent.junctionMesh.material = branchMat;
-    if(n.junctionMesh) n.junctionMesh.material = branchMat;
-  }
+  clearHighlightOverlays();
   selectedBranches = [];
   clearCPHelpers();
-}
-
-function highlightJunctionsForSelection(){
-  for(const n of selectedBranches){
-    if(n.parent && n.parent.junctionMesh) n.parent.junctionMesh.material = highlightMat;
-    if(n.junctionMesh) n.junctionMesh.material = highlightMat;
-  }
 }
 
 function dropSelectedLeaf(){
@@ -1122,8 +1217,8 @@ canvas.addEventListener('click', e => {
   mouse.y = -(e.clientY/innerHeight)*2+1;
   raycaster.setFromCamera(mouse, camera);
 
-  const meshes = allNodes.filter(n=>n.mesh&&!n.pruned).map(n=>n.mesh);
-  const branchHits = raycaster.intersectObjects(meshes);
+  const pathMeshArr = allPaths.map(p => p.mesh).filter(Boolean);
+  const branchHits = raycaster.intersectObjects(pathMeshArr);
 
   let leafHits = [];
   if(leafPoints && state.showLeaves){
@@ -1149,23 +1244,20 @@ canvas.addEventListener('click', e => {
 
   if(branchHits.length){
     clearLeafSel();
-    const hitNode = branchHits[0].object.userData.node;
+    const hitNode = nodeFromHit(branchHits[0]);
+    if(!hitNode) return;
 
     if(e.shiftKey && selectedBranches.length > 0){
-      if(selectedBranches.includes(hitNode)){
-        return;
-      }
+      if(selectedBranches.includes(hitNode)) return;
       const last = selectedBranches[selectedBranches.length - 1];
       const first = selectedBranches[0];
       if(last.children.includes(hitNode)){
         selectedBranches.push(hitNode);
-        hitNode.mesh.material = highlightMat;
-        highlightJunctionsForSelection();
+        addHighlightOverlay(hitNode);
         showMultiHelpers();
       } else if(hitNode.children.includes(first)){
         selectedBranches.unshift(hitNode);
-        hitNode.mesh.material = highlightMat;
-        highlightJunctionsForSelection();
+        addHighlightOverlay(hitNode);
         showMultiHelpers();
       }
     } else {
@@ -1184,8 +1276,7 @@ canvas.addEventListener('click', e => {
       }
       clearBranchSel();
       selectedBranches = [hitNode];
-      hitNode.mesh.material = highlightMat;
-      highlightJunctionsForSelection();
+      addHighlightOverlay(hitNode);
       showCPHelpers(hitNode);
     }
     return;
@@ -1253,7 +1344,7 @@ canvas.addEventListener('pointermove', e => {
     dragCP.dx = dragStartDx + localDelta.x;
     dragCP.dy = dragStartDy + localDelta.y;
     dragCP.dz = dragStartDz + localDelta.z;
-    rebuildBranchMesh(dragNode);
+    rebuildAllPaths();
   } else if(dragType === 'tip'){
     dragNode.end.copy(newWorld);
     const toEnd = newWorld.clone().sub(dragNode.start);
@@ -1261,19 +1352,11 @@ canvas.addEventListener('pointermove', e => {
     if(dragNode.len > 0.01){
       dragNode.dir.copy(toEnd.normalize());
     }
-    if(dragNode.mesh){
-      dragNode.mesh.quaternion.setFromUnitVectors(UP, dragNode.dir);
-    }
-    rebuildBranchMesh(dragNode);
     cascadePositions(dragNode);
-    updateJunctionForNode(dragNode);
-    for(const child of dragNode.children){
-      if(!child.pruned && child.mesh){
-        child.mesh.position.copy(child.start);
-        rebuildBranchMesh(child);
-      }
-    }
+    rebuildAllPaths();
   }
+  clearHighlightOverlays();
+  for(const n of selectedBranches) addHighlightOverlay(n);
   updateAllHelpers();
 });
 
@@ -1310,7 +1393,9 @@ window.addEventListener('keydown', e => {
   if(e.key === 'ArrowRight') cp.dx += step;
   if(e.key === 'ArrowUp')    cp.dz -= step;
   if(e.key === 'ArrowDown')  cp.dz += step;
-  rebuildBranchMesh(n);
+  rebuildAllPaths();
+  clearHighlightOverlays();
+  for(const s of selectedBranches) addHighlightOverlay(s);
   updateAllHelpers();
   rebuildLeaves();
 });
@@ -1324,7 +1409,8 @@ function rebuild(){
     if(c.geometry) c.geometry.dispose();
   }
   fallingDebris.length = 0;
-  junctionSpheres = [];
+  allPaths = [];
+  highlightOverlays = [];
   selectedBranches = [];
   clearCPHelpers();
   state.growthTime = 0;
@@ -1332,16 +1418,15 @@ function rebuild(){
   nodeId = 0;
 
   branchMat = makeBranchMat(state.trunkCol, state.tipCol);
+  branchMat.uniforms.uGrowTime.value = 0;
   leafTex = makeLeafTex(state.leafShape || 'oak');
   leafMat = makeLeafMat();
 
   const rng = new RNG(state.seed);
   root = generateTree(state, rng);
   allNodes = collectBFS(root);
-  allNodes.forEach(n => { n._curEnd = n.start.clone(); });
 
-  buildBranches(root, branchMat, treeGroup);
-  rebuildJunctions();
+  buildPathMeshes(root, branchMat, treeGroup);
 
   const rng2 = new RNG(state.seed + 7777);
   const leafGeo = buildLeaves(root, state, rng2);
