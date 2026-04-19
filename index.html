@@ -62,13 +62,30 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 
 /* ───────── species presets ───────── */
 
+// Hallé et al. architectural archetypes. Each entry fully specifies the
+// growth-topology axes of a tree (leader, gravity, branching count,
+// phyllotaxis, horizontality). Species presets carry only phenotype
+// (size, taper, crown, leaves, color) and name the archetype they use
+// as their default topology; selecting a species applies the preset and
+// then overlays the archetype's topology on top.
+const ARCHETYPES = {
+  Rauh:        { leaderAxis:.4,  branches:3, branchJitter:1, phyllotaxis:137.5, branchHorizontalPull:.3, branchRollSnap:.2, gravity:-.05, gravityMode:'constant'   },
+  Massart:     { leaderAxis:.9,  branches:4, branchJitter:1, phyllotaxis:72,    branchHorizontalPull:.8, branchRollSnap:.6, gravity:0,    gravityMode:'constant'   },
+  Troll:       { leaderAxis:0,   branches:2, branchJitter:1, phyllotaxis:137.5, branchHorizontalPull:.9, branchRollSnap:.8, gravity:.2,   gravityMode:'cumulative' },
+  Leeuwenberg: { leaderAxis:-.5, branches:2, branchJitter:0, phyllotaxis:180,   branchHorizontalPull:.2, branchRollSnap:.1, gravity:-.1,  gravityMode:'constant'   },
+  Champagnat:  { leaderAxis:.3,  branches:3, branchJitter:1, phyllotaxis:137.5, branchHorizontalPull:0,  branchRollSnap:0,  gravity:1,    gravityMode:'cumulative' },
+  Scarrone:    { leaderAxis:.3,  branches:4, branchJitter:1, phyllotaxis:137.5, branchHorizontalPull:.5, branchRollSnap:.3, gravity:-.2,  gravityMode:'constant'   },
+};
+
+// Species presets carry only phenotype (size, taper, crown, leaves, color)
+// plus the name of their default architectural archetype.
 const PRESETS = {
-  Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, taperCurve:'linear', droop:.08, tropism:-.1, plagiotropism:.1, apical:.1, bareTrunk:.15, curvature:.4, crownShape:'sphere', phyllotaxis:137.5, variance:.6, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
-  Pine:   { maxDepth:6, minBr:4, maxBr:5, minAng:80, maxAng:95, lenRatio:.78, trunkLen:1.3, trunkRad:.22, taper:.55, taperCurve:'linear', droop:.08, tropism:0, plagiotropism:.55, apical:.92, bareTrunk:.2, curvature:0, crownShape:'cone', phyllotaxis:72, variance:.2, leafDen:22, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
-  Willow: { maxDepth:7, minBr:3, maxBr:4, minAng:20, maxAng:40, lenRatio:.82, trunkLen:3.0, trunkRad:.24, taper:.52, taperCurve:'exponential', droop:1, tropism:.5, plagiotropism:0, apical:.25, bareTrunk:.15, curvature:.5, crownShape:'weeping', phyllotaxis:0, variance:.4, leafDen:20, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
-  Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.18, tropism:0, plagiotropism:.2, apical:.05, bareTrunk:0, curvature:.7, crownShape:'sphere', phyllotaxis:0, variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
-  Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', droop:.04, tropism:-.2, plagiotropism:.3, apical:0, bareTrunk:.4, curvature:.2, crownShape:'umbrella', phyllotaxis:90, variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
-  'Japanese Maple': { maxDepth:6, minBr:2, maxBr:3, minAng:35, maxAng:65, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, taperCurve:'linear', droop:.42, tropism:0, plagiotropism:.4, apical:.1, bareTrunk:.15, curvature:.5, crownShape:'sphere', phyllotaxis:137.5, variance:.5, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple', leafArr:'opposite' },
+  Oak:             { archetype:'Rauh',       maxDepth:6, angle:55, angleSpread:15, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, taperCurve:'linear',      bareTrunk:.15, curvature:.4, crownShape:'sphere',   variance:.6, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak',    leafArr:'alternate' },
+  Pine:            { archetype:'Massart',    maxDepth:6, angle:87, angleSpread:7,  lenRatio:.78, trunkLen:1.3, trunkRad:.22, taper:.55, taperCurve:'linear',      bareTrunk:.2,  curvature:0,  crownShape:'cone',     variance:.2, leafDen:22, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
+  Willow:          { archetype:'Champagnat', maxDepth:7, angle:30, angleSpread:10, lenRatio:.82, trunkLen:3.0, trunkRad:.24, taper:.52, taperCurve:'exponential', bareTrunk:.15, curvature:.5, crownShape:'weeping',  variance:.4, leafDen:20, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
+  Bonsai:          { archetype:'Troll',      maxDepth:5, angle:65, angleSpread:15, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear',      bareTrunk:0,   curvature:.7, crownShape:'sphere',   variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round',  leafArr:'opposite' },
+  Baobab:          { archetype:'Scarrone',   maxDepth:4, angle:45, angleSpread:10, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', bareTrunk:.4,  curvature:.2, crownShape:'umbrella', variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan',    leafArr:'radial' },
+  'Japanese Maple':{ archetype:'Champagnat', maxDepth:6, angle:50, angleSpread:15, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, taperCurve:'linear',      bareTrunk:.15, curvature:.5, crownShape:'sphere',   variance:.5, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple',  leafArr:'opposite' },
 };
 
 /* ───────── shaders ───────── */
@@ -440,7 +457,8 @@ function generateTree(p, rng){
         const child = makeNode(node.end, cDir, cLen, cRad, depth+1);
         if(child){ child.parent = node; node.children.push(child); }
       } else {
-        const n = rng.randInt(p.minBr, p.maxBr);
+        const jitter = p.branchJitter || 0;
+        const n = Math.max(1, (p.branches || 2) + rng.randInt(-jitter, jitter));
         const phyllo = (p.phyllotaxis || 0) * DEG;
         // Distichous growth: when phyllotaxis is ~180° we want successive trunk
         // nodes to flip their pair by 180° so side branches cleanly alternate
@@ -450,43 +468,53 @@ function generateTree(p, rng){
         const baseRoll = isDistichous
           ? (depth % 2) * Math.PI + rng.range(-0.1, 0.1)
           : rng.range(0, Math.PI * 2);
+        const la = p.leaderAxis || 0;
         for(let i = 0; i < n && count < MAX_NODES; i++){
-          const isLeader = (i === 0 && (p.apical || 0) > 0);
+          const isLeader = (i === 0 && la > 0);
           const v = p.variance || 0.5;
-          const angMid = (p.minAng + p.maxAng) * 0.5;
-          const angHalf = (p.maxAng - p.minAng) * 0.5;
-          const sideAng = angMid + rng.range(-angHalf, angHalf) * v;
-          // Leader angle: blend between normal side-branch angle (apical=0)
-          // and a tiny wobble (apical=1). High apical → strongly vertical trunk.
-          const leaderAng = sideAng * (1 - p.apical) + rng.range(-2.5, 2.5) * p.apical;
+          const angCenter = p.angle;
+          const angHalf = p.angleSpread || 0;
+          const sideAng = angCenter + rng.range(-angHalf, angHalf) * v;
+          // Leader angle: when leaderAxis > 0 blend toward a tiny wobble
+          // (strong vertical leader); when leaderAxis < 0 exaggerate the
+          // sibling angle (anti-leader / sympodial forking).
+          const leaderAng = la >= 0
+            ? sideAng * (1 - la) + rng.range(-2.5, 2.5) * la
+            : sideAng * (1 - la);
           const ang = (isLeader ? leaderAng : sideAng) * DEG;
           let roll = phyllo > 0
             ? baseRoll + i * phyllo + rng.range(-0.15, 0.15)
             : rng.range(0, Math.PI * 2);
-          // Plagiotropic–orthotropic axis: bias roll toward horizontal (>0) or vertical (<0).
-          // Only affects sub-branches (past bareDepth+1) so the main scaffold stays 3D.
-          const plagio = p.plagiotropism || 0;
-          if(plagio !== 0 && depth >= bareDepth + 2 && !isLeader){
-            const strength = Math.abs(plagio);
-            const snapBase = plagio > 0 ? 0 : Math.PI * 0.5;
-            const nearest = Math.round((roll - snapBase) / Math.PI) * Math.PI + snapBase;
-            roll = roll + (nearest - roll) * strength * 0.55 + rng.range(-0.25, 0.25) * (1 - strength * 0.5);
+          // Branch roll snap: bias side-branch roll toward the horizontal
+          // plane so branches lay flat in pagoda/weeping architectures.
+          // Only applies to sub-branches past bareDepth+1 so the main
+          // scaffold stays 3D.
+          const snap = p.branchRollSnap || 0;
+          if(snap > 0 && depth >= bareDepth + 1 && !isLeader){
+            const nearest = Math.round(roll / Math.PI) * Math.PI;
+            roll = roll + (nearest - roll) * snap * 0.55 + rng.range(-0.25, 0.25) * (1 - snap * 0.5);
           }
           const perp = new THREE.Vector3();
           if(Math.abs(dir.y) < .99) perp.crossVectors(dir, UP).normalize();
           else perp.crossVectors(dir, new THREE.Vector3(1,0,0)).normalize();
           perp.applyAxisAngle(dir, roll);
           const cDir = dir.clone().applyAxisAngle(perp, ang);
-          cDir.y -= p.droop * (depth + 1) * .08;
-          cDir.y -= (p.tropism || 0) * 0.25;
-          // Plagiotropic (>0) dampens the vertical component toward horizontal;
-          // orthotropic (<0) amplifies it toward vertical. Skip leader and top scaffold.
-          if(plagio !== 0 && !isLeader && depth >= bareDepth + 1){
-            if(plagio > 0){
-              cDir.y -= cDir.y * plagio * 0.5;
+          // Gravity: single vertical-bias knob. 'cumulative' accumulates with
+          // depth (classic droop); 'constant' is a per-step bias (classic
+          // tropism). Positive pulls branches down, negative pushes up.
+          const g = p.gravity || 0;
+          const gScale = p.gravityMode === 'cumulative' ? (depth + 1) * 0.08 : 0.25;
+          cDir.y -= g * gScale;
+          // Branch horizontality: positive dampens the vertical component
+          // toward horizontal; negative amplifies it toward vertical. Skip
+          // leader and top scaffold.
+          const pull = p.branchHorizontalPull || 0;
+          if(pull !== 0 && !isLeader && depth >= bareDepth + 1){
+            if(pull > 0){
+              cDir.y -= cDir.y * pull * 0.5;
             } else {
               const sign = cDir.y >= 0 ? 1 : -1;
-              cDir.y += sign * Math.abs(plagio) * 0.3;
+              cDir.y += sign * Math.abs(pull) * 0.3;
             }
           }
           cDir.normalize();
@@ -494,8 +522,9 @@ function generateTree(p, rng){
           let cLen = len * p.lenRatio * rng.range(1 - lenVar, 1 + lenVar);
           let cRad = rad * taperAtDepth(p.taper, depth, p.maxDepth, p.taperCurve);
           if(isLeader){
-            cLen *= 1 + p.apical * 0.3;
-            cRad *= 1 + p.apical * 0.2;
+            const laPos = Math.max(0, la);
+            cLen *= 1 + laPos * 0.3;
+            cRad *= 1 + laPos * 0.2;
           }
           // Crown envelope: redirect branches that would exit the shape
           if(p.crownShape && p.crownShape !== 'none'){
@@ -530,11 +559,21 @@ function collectBFS(root){
 /* ───────── mesh building ───────── */
 
 function buildNodeSpline(node){
-  const pts = [new THREE.Vector3(0, 0, 0)];
+  // Small zero-offset anchor points just past each endpoint lock the
+  // entry/exit tangents to the node's axial direction. Without them,
+  // CatmullRom's endpoint tangent is biased toward the first control
+  // point, so curvature > 0 causes the geometry to leave the start
+  // point at an angle (visible as a kink where the trunk meets the ground).
+  const anchor = 0.02;
+  const pts = [
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, node.len * anchor, 0),
+  ];
   const sorted = [...node.controlPoints].sort((a,b) => a.t - b.t);
   for(const cp of sorted){
     pts.push(new THREE.Vector3(cp.dx, cp.t * node.len + cp.dy, cp.dz));
   }
+  pts.push(new THREE.Vector3(0, node.len * (1 - anchor), 0));
   pts.push(new THREE.Vector3(0, node.len, 0));
   return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
 }
@@ -989,6 +1028,7 @@ const state = {
   pruneMode: false,
   showLeaves: true,
   ...structuredClone(PRESETS.Oak),
+  ...structuredClone(ARCHETYPES[PRESETS.Oak.archetype]),
 };
 let selectedBranches = [];
 
@@ -1151,14 +1191,18 @@ function scheduleRegrowth(parent){
   const rng = new RNG(state.seed + parent.id + Date.now());
   const count = rng.randInt(1, 2);
   for(let i = 0; i < count; i++){
-    const ang = rng.range(state.minAng, state.maxAng) * DEG;
+    const v = state.variance || 0.5;
+    const halfSpread = (state.angleSpread || 0) * v;
+    const ang = (state.angle + rng.range(-halfSpread, halfSpread)) * DEG;
     const roll = rng.range(0, Math.PI*2);
     const perp = new THREE.Vector3();
     if(Math.abs(parent.dir.y)<.99) perp.crossVectors(parent.dir, UP).normalize();
     else perp.crossVectors(parent.dir, new THREE.Vector3(1,0,0)).normalize();
     perp.applyAxisAngle(parent.dir, roll);
     const cDir = parent.dir.clone().applyAxisAngle(perp, ang);
-    cDir.y -= state.droop * (parent.depth+1) * .08;
+    const g = state.gravity || 0;
+    const gScale = state.gravityMode === 'cumulative' ? (parent.depth + 1) * 0.08 : 0.25;
+    cDir.y -= g * gScale;
     cDir.normalize();
     const cLen = parent.len * state.lenRatio * rng.range(.8,1.2);
     const cRad = parent.rad * state.taper;
@@ -1471,9 +1515,20 @@ function rebuild(){
 const gui = new GUI({ title: 'Painterly Tree' });
 
 const specObj = { species: state.species };
+const archObj = { archetype: PRESETS[state.species].archetype };
+
 gui.add(specObj, 'species', Object.keys(PRESETS)).name('Species').onChange(v => {
-  Object.assign(state, structuredClone(PRESETS[v]));
+  const preset = PRESETS[v];
+  Object.assign(state, structuredClone(preset));
+  Object.assign(state, structuredClone(ARCHETYPES[preset.archetype]));
   state.species = v;
+  archObj.archetype = preset.archetype;
+  rebuild();
+  refreshGUI();
+});
+
+gui.add(archObj, 'archetype', Object.keys(ARCHETYPES)).name('Archetype').onChange(v => {
+  Object.assign(state, structuredClone(ARCHETYPES[v]));
   rebuild();
   refreshGUI();
 });
@@ -1485,22 +1540,34 @@ fGrow.add({ regrow(){ state.growthTime=0; state.playing=true; } }, 'regrow').nam
 
 const fStruct = gui.addFolder('Structure');
 const structCtrls = [];
-structCtrls.push(fStruct.add(state,'maxDepth',3,8,1).name('Depth'));
-structCtrls.push(fStruct.add(state,'minBr',1,4,1).name('Min Branches'));
-structCtrls.push(fStruct.add(state,'maxBr',2,5,1).name('Max Branches'));
-structCtrls.push(fStruct.add(state,'minAng',5,60,1).name('Min Angle'));
-structCtrls.push(fStruct.add(state,'maxAng',15,90,1).name('Max Angle'));
-structCtrls.push(fStruct.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
-structCtrls.push(fStruct.add(state,'droop',0,1,.01).name('Droop'));
-structCtrls.push(fStruct.add(state,'tropism',-1,1,.01).name('Tropism'));
-structCtrls.push(fStruct.add(state,'plagiotropism',-1,1,.01).name('Plagiotropism'));
-structCtrls.push(fStruct.add(state,'apical',0,1,.01).name('Apical Dominance'));
-structCtrls.push(fStruct.add(state,'bareTrunk',0,1,.01).name('Bare Trunk'));
-structCtrls.push(fStruct.add(state,'curvature',0,1,.01).name('Curvature'));
-structCtrls.push(fStruct.add(state,'taperCurve',['linear','exponential','stepped']).name('Taper Curve'));
-structCtrls.push(fStruct.add(state,'crownShape',['none','cone','sphere','column','umbrella','weeping']).name('Crown Shape'));
-structCtrls.push(fStruct.add(state,'phyllotaxis',0,360,0.5).name('Phyllotaxis'));
-structCtrls.push(fStruct.add(state,'variance',0,1,.01).name('Variance'));
+
+const fSize = fStruct.addFolder('Size');
+structCtrls.push(fSize.add(state,'maxDepth',3,8,1).name('Depth'));
+structCtrls.push(fSize.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
+structCtrls.push(fSize.add(state,'bareTrunk',0,1,.01).name('Bare Trunk'));
+structCtrls.push(fSize.add(state,'taperCurve',['linear','exponential','stepped']).name('Taper Curve'));
+
+const fBranching = fStruct.addFolder('Branching');
+structCtrls.push(fBranching.add(state,'branches',1,6,1).name('Branches'));
+structCtrls.push(fBranching.add(state,'branchJitter',0,3,1).name('Branch Jitter'));
+structCtrls.push(fBranching.add(state,'phyllotaxis',0,360,0.5).name('Phyllotaxis'));
+structCtrls.push(fBranching.add(state,'leaderAxis',-1,1,.01).name('Leader Axis'));
+
+const fShape = fStruct.addFolder('Branch Shape');
+structCtrls.push(fShape.add(state,'angle',5,95,1).name('Angle'));
+structCtrls.push(fShape.add(state,'angleSpread',0,45,1).name('Angle Spread'));
+structCtrls.push(fShape.add(state,'curvature',0,1,.01).name('Curvature'));
+structCtrls.push(fShape.add(state,'variance',0,1,.01).name('Variance'));
+
+const fBias = fStruct.addFolder('Growth Bias');
+structCtrls.push(fBias.add(state,'gravity',-1,1,.01).name('Gravity'));
+structCtrls.push(fBias.add(state,'gravityMode',['constant','cumulative']).name('Gravity Mode'));
+structCtrls.push(fBias.add(state,'branchHorizontalPull',-1,1,.01).name('Branch Horizontality'));
+structCtrls.push(fBias.add(state,'branchRollSnap',0,1,.01).name('Branch Roll Snap'));
+
+const fCrown = fStruct.addFolder('Crown');
+structCtrls.push(fCrown.add(state,'crownShape',['none','cone','sphere','column','umbrella','weeping']).name('Crown Shape'));
+
 structCtrls.forEach(c => c.onChange(() => rebuild()));
 fStruct.close();
 
