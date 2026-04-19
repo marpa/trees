@@ -167,6 +167,23 @@ void main(){
   gl_FragColor = vec4(col, a * .92);
 }`;
 
+const stemVert = /* glsl */`
+attribute float aGrowEnd;
+uniform float uReveal;
+varying float vAlpha;
+void main(){
+  vAlpha = smoothstep(aGrowEnd-.08, aGrowEnd+.05, uReveal);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.);
+}`;
+
+const stemFrag = /* glsl */`
+uniform vec3 uColor;
+varying float vAlpha;
+void main(){
+  if(vAlpha < .05) discard;
+  gl_FragColor = vec4(uColor, vAlpha);
+}`;
+
 const postVert = /* glsl */`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`;
 
 const postFrag = /* glsl */`
@@ -905,8 +922,12 @@ function getLeafPlacements(node, params, rng){
 
 function buildLeaves(root, params, rng){
   const positions=[], colors=[], growEnds=[], sizes=[], rots=[], owners=[];
+  const stemPositions=[], stemGrowEnds=[];
   const lc = new THREE.Color(params.leafCol);
   const maxGrow = params.maxDepth * .5 + .8;
+  const stemLen = params.stemLen != null ? params.stemLen : 0.08;
+  // No visible petioles for needle clusters.
+  const hasStems = stemLen > 0 && params.leafArr !== 'fascicled';
 
   function visit(node){
     if(node.pruned) return;
@@ -915,7 +936,16 @@ function buildLeaves(root, params, rng){
     if(node.depth >= params.maxDepth - 1 || isTerminal){
       const placements = getLeafPlacements(node, params, rng);
       for(const pl of placements){
-        const p = bentPointAt(node, pl.t, pl.angle, pl.radius);
+        let p;
+        if(hasStems){
+          const attach = bentPointAt(node, pl.t, pl.angle, node.rad);
+          p = bentPointAt(node, pl.t, pl.angle, node.rad + stemLen);
+          stemPositions.push(attach.x, attach.y, attach.z, p.x, p.y, p.z);
+          const gEnd = (node.growStart + .8) / (maxGrow*1.1);
+          stemGrowEnds.push(gEnd, gEnd);
+        } else {
+          p = bentPointAt(node, pl.t, pl.angle, pl.radius);
+        }
         positions.push(p.x,p.y,p.z);
         let r, g, b;
         if(params.leafShape === 'oak'){
@@ -958,7 +988,15 @@ function buildLeaves(root, params, rng){
   geo.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes,1));
   geo.setAttribute('aRot', new THREE.Float32BufferAttribute(rots,1));
   geo.userData = { owners };
-  return geo;
+
+  let stemGeo = null;
+  if(stemPositions.length){
+    stemGeo = new THREE.BufferGeometry();
+    stemGeo.setAttribute('position', new THREE.Float32BufferAttribute(stemPositions,3));
+    stemGeo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(stemGrowEnds,1));
+  }
+
+  return { leafGeo: geo, stemGeo };
 }
 
 /* ───────── scene ───────── */
@@ -1016,6 +1054,7 @@ scene.add(treeGroup);
 let allNodes = [];
 let root = null;
 let leafPoints = null;
+let leafStems = null;
 // Tube tip radius (fraction of node.rad) along each branch spline.
 const BRANCH_TIP_R = 0.74;
 
@@ -1034,6 +1073,7 @@ let selectedBranches = [];
 
 let branchMat = null;
 let leafMat = null;
+let stemMat = null;
 let highlightMat = null;
 let leafTex = makeLeafTex('oak');
 
@@ -1049,6 +1089,24 @@ function makeLeafMat(){
     uniforms:{ uReveal:{value:0}, uMap:{value:leafTex} },
     vertexShader: leafVert, fragmentShader: leafFrag,
     vertexColors: true, transparent: true, depthWrite: false,
+  });
+}
+
+function stemColorFromLeaf(leafColHex){
+  // Painterly petiole: darkened, slightly warmer version of leaf colour.
+  const c = new THREE.Color(leafColHex);
+  c.offsetHSL(-0.02, -0.15, -0.22);
+  return c;
+}
+
+function makeStemMat(){
+  return new THREE.ShaderMaterial({
+    uniforms:{
+      uReveal:{ value: 0 },
+      uColor:{ value: stemColorFromLeaf(state.leafCol) },
+    },
+    vertexShader: stemVert, fragmentShader: stemFrag,
+    transparent: true, depthWrite: false,
   });
 }
 
@@ -1136,7 +1194,9 @@ function updateGrowth(dt){
 
   if(leafMat){
     const maxGrow = state.maxDepth * .5 + .8;
-    leafMat.uniforms.uReveal.value = clamp01(state.growthTime / (maxGrow * 1.1));
+    const rev = clamp01(state.growthTime / (maxGrow * 1.1));
+    leafMat.uniforms.uReveal.value = rev;
+    if(stemMat) stemMat.uniforms.uReveal.value = rev;
   }
 }
 
@@ -1223,12 +1283,21 @@ function scheduleRegrowth(parent){
 
 function rebuildLeaves(){
   if(leafPoints){ treeGroup.remove(leafPoints); leafPoints.geometry.dispose(); }
+  if(leafStems){ treeGroup.remove(leafStems); leafStems.geometry.dispose(); leafStems = null; }
   const rng2 = new RNG(state.seed + 7777);
-  const geo = buildLeaves(root, state, rng2);
-  leafPoints = new THREE.Points(geo, leafMat);
+  const { leafGeo, stemGeo } = buildLeaves(root, state, rng2);
+  leafPoints = new THREE.Points(leafGeo, leafMat);
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
+  if(stemGeo){
+    if(stemMat) stemMat.uniforms.uColor.value.copy(stemColorFromLeaf(state.leafCol));
+    leafStems = new THREE.LineSegments(stemGeo, stemMat);
+    leafStems.visible = state.showLeaves;
+    leafStems.raycast = () => {};
+    treeGroup.add(leafStems);
+  }
   if(leafMat) leafMat.uniforms.uReveal.value = 1.0;
+  if(stemMat) stemMat.uniforms.uReveal.value = 1.0;
 }
 
 let _selLeaf = -1;
@@ -1494,6 +1563,8 @@ function rebuild(){
   branchMat.uniforms.uGrowTime.value = 0;
   leafTex = makeLeafTex(state.leafShape || 'oak');
   leafMat = makeLeafMat();
+  stemMat = makeStemMat();
+  leafStems = null;
 
   const rng = new RNG(state.seed);
   root = generateTree(state, rng);
@@ -1502,10 +1573,16 @@ function rebuild(){
   buildPathMeshes(root, branchMat, treeGroup);
 
   const rng2 = new RNG(state.seed + 7777);
-  const leafGeo = buildLeaves(root, state, rng2);
+  const { leafGeo, stemGeo } = buildLeaves(root, state, rng2);
   leafPoints = new THREE.Points(leafGeo, leafMat);
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
+  if(stemGeo){
+    leafStems = new THREE.LineSegments(stemGeo, stemMat);
+    leafStems.visible = state.showLeaves;
+    leafStems.raycast = () => {};
+    treeGroup.add(leafStems);
+  }
 
   controls.target.set(0, state.trunkLen * 1.2, 0);
 }
@@ -1589,6 +1666,7 @@ gui.add(state,'pruneMode').name('Prune Mode').onChange(v => {
 gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
   if(v) rebuildLeaves();
   if(leafPoints) leafPoints.visible = v;
+  if(leafStems) leafStems.visible = v;
 });
 
 gui.add({ newSeed(){ state.seed=Math.floor(Math.random()*99999); rebuild(); }}, 'newSeed').name('New Seed');
