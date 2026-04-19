@@ -64,7 +64,7 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 
 const PRESETS = {
   Oak:    { maxDepth:6, minBr:2, maxBr:3, minAng:40, maxAng:70, lenRatio:.68, trunkLen:3.5, trunkRad:.30, taper:.60, taperCurve:'linear', droop:.08, tropism:-.1, plagiotropism:.1, apical:.1, bareTrunk:.15, curvature:.4, crownShape:'sphere', phyllotaxis:137.5, variance:.6, leafDen:12, leafSz:.1, trunkCol:'#5C3A1E', tipCol:'#7A5A3A', leafCol:'#4A0F0C', leafShape:'oak', leafArr:'alternate' },
-  Pine:   { maxDepth:6, minBr:4, maxBr:5, minAng:68, maxAng:82, lenRatio:.72, trunkLen:3.2, trunkRad:.20, taper:.55, taperCurve:'linear', droop:.12, tropism:-.15, plagiotropism:.55, apical:.7,  bareTrunk:.15, curvature:.08, crownShape:'cone', phyllotaxis:72, variance:.25, leafDen:22, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
+  Pine:   { maxDepth:6, minBr:4, maxBr:5, minAng:80, maxAng:95, lenRatio:.78, trunkLen:1.3, trunkRad:.22, taper:.55, taperCurve:'linear', droop:.08, tropism:0, plagiotropism:.55, apical:.92, bareTrunk:.2, curvature:0, crownShape:'cone', phyllotaxis:72, variance:.2, leafDen:22, leafSz:.1, trunkCol:'#4A3020', tipCol:'#6A5040', leafCol:'#2D5A27', leafShape:'needle', leafArr:'fascicled' },
   Willow: { maxDepth:7, minBr:3, maxBr:4, minAng:20, maxAng:40, lenRatio:.82, trunkLen:3.0, trunkRad:.24, taper:.52, taperCurve:'exponential', droop:1, tropism:.5, plagiotropism:0, apical:.25, bareTrunk:.15, curvature:.5, crownShape:'weeping', phyllotaxis:0, variance:.4, leafDen:20, leafSz:.1, trunkCol:'#5A4530', tipCol:'#7A6550', leafCol:'#6B8E3A', leafShape:'willow', leafArr:'alternate' },
   Bonsai: { maxDepth:5, minBr:2, maxBr:3, minAng:50, maxAng:80, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear', droop:.18, tropism:0, plagiotropism:.2, apical:.05, bareTrunk:0, curvature:.7, crownShape:'sphere', phyllotaxis:0, variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round', leafArr:'opposite' },
   Baobab: { maxDepth:4, minBr:3, maxBr:4, minAng:35, maxAng:55, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', droop:.04, tropism:-.2, plagiotropism:.3, apical:0, bareTrunk:.4, curvature:.2, crownShape:'umbrella', phyllotaxis:90, variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan', leafArr:'radial' },
@@ -388,7 +388,7 @@ function taperAtDepth(baseTaper, depth, maxDepth, curve){
 }
 
 function generateTree(p, rng){
-  const MAX_NODES = 600;
+  const MAX_NODES = 3000;
   let count = 0;
   const treeH = p.trunkLen * (1 + p.lenRatio * p.maxDepth * 0.55);
   const crownR = treeH * 0.5;
@@ -452,11 +452,14 @@ function generateTree(p, rng){
           : rng.range(0, Math.PI * 2);
         for(let i = 0; i < n && count < MAX_NODES; i++){
           const isLeader = (i === 0 && (p.apical || 0) > 0);
-          const angMul = isLeader ? (1 - p.apical * 0.85) : 1;
           const v = p.variance || 0.5;
           const angMid = (p.minAng + p.maxAng) * 0.5;
           const angHalf = (p.maxAng - p.minAng) * 0.5;
-          const ang = (angMid + rng.range(-angHalf, angHalf) * v) * DEG * angMul;
+          const sideAng = angMid + rng.range(-angHalf, angHalf) * v;
+          // Leader angle: blend between normal side-branch angle (apical=0)
+          // and a tiny wobble (apical=1). High apical → strongly vertical trunk.
+          const leaderAng = sideAng * (1 - p.apical) + rng.range(-2.5, 2.5) * p.apical;
+          const ang = (isLeader ? leaderAng : sideAng) * DEG;
           let roll = phyllo > 0
             ? baseRoll + i * phyllo + rng.range(-0.15, 0.15)
             : rng.range(0, Math.PI * 2);
