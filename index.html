@@ -1143,7 +1143,9 @@ function cascadePositions(node){
 function makeTipHelper(node){
   const tipSphere = new THREE.Mesh(endpointGeo, endpointMat);
   tipSphere.position.copy(node.end);
-  const jRadius = Math.max(node.rad * BRANCH_TIP_R * 1.5, 0.12);
+  // Keep the helper close to the actual branch tip so it doesn't dominate thin twigs,
+  // but enforce a small minimum so it stays clickable.
+  const jRadius = Math.max(node.rad * BRANCH_TIP_R * 1.1, 0.045);
   tipSphere.scale.setScalar(jRadius / 0.12);
   tipSphere.userData = { type: 'tip', node };
   tipSphere.renderOrder = 9999;
