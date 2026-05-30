@@ -1,0 +1,7 @@
+{
+  "name": "trees",
+  "private": true,
+  "scripts": {
+    "start": "node .claude/serve.js"
+  }
+}
