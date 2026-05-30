@@ -1019,6 +1019,7 @@ controls.target.set(0, 3.5, 0);
 controls.enableDamping = true;
 controls.dampingFactor = .08;
 controls.maxPolarAngle = Math.PI * .48;
+controls.autoRotateSpeed = 0.8;
 controls.update();
 
 scene.add(new THREE.AmbientLight(0xfff5e6, .75));
@@ -1066,10 +1067,13 @@ const state = {
   growthTime: 0,
   pruneMode: false,
   showLeaves: true,
+  autoRotate: true,
   ...structuredClone(PRESETS.Oak),
   ...structuredClone(ARCHETYPES[PRESETS.Oak.archetype]),
 };
 let selectedBranches = [];
+
+controls.autoRotate = state.autoRotate;
 
 let branchMat = null;
 let leafMat = null;
@@ -1199,75 +1203,7 @@ function updateGrowth(dt){
     const rev = clamp01(state.growthTime / (maxGrow * 1.1));
     leafMat.uniforms.uReveal.value = rev;
     if(stemMat) stemMat.uniforms.uReveal.value = rev;
-    if(rev >= 1 && tourArmed){
-      tourArmed = false;
-      startTour();
-    }
   }
-}
-
-/* ───────── camera tour ───────── */
-
-let tour = null;
-let tourArmed = true;
-
-function easeInOut(k){
-  return k < .5 ? 2*k*k : 1 - Math.pow(-2*k + 2, 2) / 2;
-}
-
-function startTour(){
-  const off = camera.position.clone().sub(controls.target);
-  const r = off.length();
-  if(r < 1e-3) return;
-  const phi = Math.acos(THREE.MathUtils.clamp(off.y / r, -1, 1));
-  const theta = Math.atan2(off.z, off.x);
-  tour = {
-    phase: 'orbit',
-    t: 0,
-    r, phi, theta,
-    durations: { orbit: 6, rise: 2, hold: 1, return: 2 },
-    phiTop: 0.12,
-  };
-  controls.enabled = false;
-}
-
-function endTour(){
-  if(!tour) return;
-  tour = null;
-  controls.enabled = true;
-}
-
-function updateTour(dt){
-  if(!tour) return;
-  tour.t += dt;
-  let p = tour.phi, th = tour.theta;
-  const D = tour.durations;
-
-  if(tour.phase === 'orbit'){
-    const k = clamp01(tour.t / D.orbit);
-    th = tour.theta + easeInOut(k) * Math.PI * 2;
-    if(k >= 1){ tour.phase = 'rise'; tour.t = 0; }
-  } else if(tour.phase === 'rise'){
-    const k = clamp01(tour.t / D.rise);
-    p = THREE.MathUtils.lerp(tour.phi, tour.phiTop, easeInOut(k));
-    if(k >= 1){ tour.phase = 'hold'; tour.t = 0; }
-  } else if(tour.phase === 'hold'){
-    p = tour.phiTop;
-    if(tour.t >= D.hold){ tour.phase = 'return'; tour.t = 0; }
-  } else if(tour.phase === 'return'){
-    const k = clamp01(tour.t / D.return);
-    p = THREE.MathUtils.lerp(tour.phiTop, tour.phi, easeInOut(k));
-    if(k >= 1){ endTour(); return; }
-  }
-
-  const r = tour.r;
-  const sinP = Math.sin(p);
-  camera.position.set(
-    controls.target.x + r * sinP * Math.cos(th),
-    controls.target.y + r * Math.cos(p),
-    controls.target.z + r * sinP * Math.sin(th),
-  );
-  camera.lookAt(controls.target);
 }
 
 /* ───────── pruning ───────── */
@@ -1506,8 +1442,15 @@ let dragStartWorld = null;
 let dragStartDx = 0, dragStartDy = 0, dragStartDz = 0;
 let wasDragging = false;
 
-canvas.addEventListener('pointerdown', () => { if(tour) endTour(); }, true);
-canvas.addEventListener('wheel', () => { if(tour) endTour(); }, { passive: true, capture: true });
+canvas.addEventListener('pointerdown', e => {
+  if(e.button === 0) controls.autoRotate = false;
+});
+window.addEventListener('pointerup', e => {
+  if(e.button === 0 && state.autoRotate) controls.autoRotate = true;
+});
+window.addEventListener('pointercancel', () => {
+  if(state.autoRotate) controls.autoRotate = true;
+});
 
 canvas.addEventListener('pointerdown', e => {
   if(!state.pruneMode || !cpGroup.children.length) return;
@@ -1618,8 +1561,6 @@ window.addEventListener('keydown', e => {
 /* ───────── rebuild ───────── */
 
 function rebuild(){
-  endTour();
-  tourArmed = true;
   while(treeGroup.children.length){
     const c = treeGroup.children[0];
     treeGroup.remove(c);
@@ -1688,7 +1629,13 @@ gui.add(archObj, 'archetype', Object.keys(ARCHETYPES)).name('Archetype').onChang
 const fGrow = gui.addFolder('Growth');
 fGrow.add(state, 'growSpeed', .1, 3, .1).name('Speed');
 fGrow.add({ play(){ state.playing = !state.playing; } }, 'play').name('Play / Pause');
-fGrow.add({ regrow(){ state.growthTime=0; state.playing=true; endTour(); tourArmed=true; } }, 'regrow').name('Regrow');
+fGrow.add({ regrow(){
+  state.growthTime=0;
+  state.playing=true;
+  state.autoRotate = true;
+  controls.autoRotate = true;
+  refreshGUI();
+} }, 'regrow').name('Regrow');
 
 const fStruct = gui.addFolder('Structure');
 const structCtrls = [];
@@ -1743,8 +1690,17 @@ gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
   if(leafPoints) leafPoints.visible = v;
   if(leafStems) leafStems.visible = v;
 });
+gui.add(state,'autoRotate').name('Auto Rotate').onChange(v => {
+  controls.autoRotate = v;
+});
 
-gui.add({ newSeed(){ state.seed=Math.floor(Math.random()*99999); rebuild(); }}, 'newSeed').name('New Seed');
+gui.add({ newSeed(){
+  state.seed=Math.floor(Math.random()*99999);
+  state.autoRotate = true;
+  controls.autoRotate = true;
+  rebuild();
+  refreshGUI();
+}}, 'newSeed').name('New Seed');
 
 function refreshGUI(){ gui.controllersRecursive().forEach(c => c.updateDisplay()); }
 
@@ -1755,8 +1711,7 @@ const clock = new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), .05);
-  updateTour(dt);
-  if(!tour) controls.update();
+  controls.update();
   updateGrowth(dt);
   postShader.uniforms.uTime.value = clock.elapsedTime;
 
