@@ -14,10 +14,20 @@
       border-radius: 20px; font: 14px/1.4 Georgia, serif;
       display: none; pointer-events: none; text-align: center;
     }
+    #settingsLink {
+      position: fixed; bottom: 20px; left: 20px;
+      background: rgba(60,40,20,0.75); color: #f0e6d2;
+      padding: 8px 14px; border-radius: 16px;
+      font: 13px/1.4 Georgia, serif;
+      text-decoration: none;
+      transition: background .15s;
+    }
+    #settingsLink:hover { background: rgba(60,40,20,0.92); }
   </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<a id="settingsLink" href="settings.html" target="_blank">Settings guide</a>
 <div id="pruneHint">Click to select &middot; Click again to add curve point &middot; Drag yellow to curve, orange to move tip &middot; Shift+click to chain &middot; Delete to prune</div>
 <script type="importmap">
 {
