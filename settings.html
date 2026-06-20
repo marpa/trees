@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Painterly Tree — Settings Guide</title>
+  <title>Tree Generator — Settings Guide</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -24,18 +24,10 @@
       margin-bottom: 2rem;
       font-size: .95rem;
     }
-    h2 {
-      font-size: 1.15rem;
-      font-weight: normal;
-      margin: 2rem 0 .75rem;
-      padding-bottom: .35rem;
-      border-bottom: 1px solid rgba(60,40,20,.2);
-      color: #4a3020;
-    }
     h3 {
       font-size: 1rem;
       font-weight: normal;
-      margin: 1.25rem 0 .35rem;
+      margin: 0;
       color: #5c4030;
     }
     p { margin-bottom: .75rem; }
@@ -73,7 +65,7 @@
       background: rgba(60,40,20,.08);
       border-radius: 8px;
       padding: .85rem 1rem;
-      margin: 1rem 0;
+      margin: 1rem 0 0;
       font-size: .92rem;
     }
     code {
@@ -83,9 +75,69 @@
       padding: .1em .35em;
       border-radius: 3px;
     }
+    details.section {
+      margin-top: 1.25rem;
+      border: 1px solid rgba(60,40,20,.15);
+      border-radius: 8px;
+      background: rgba(255,255,255,.08);
+    }
+    details.section > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: .7rem 1rem;
+      font-size: 1.15rem;
+      color: #4a3020;
+      user-select: none;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: .4em;
+    }
+    details.section > summary::-webkit-details-marker { display: none; }
+    details.section > summary::before {
+      content: '▸';
+      flex-shrink: 0;
+      line-height: 1;
+      transition: transform .15s;
+    }
+    details.section[open] > summary::before { transform: rotate(90deg); }
+    details.section[open] > summary {
+      border-bottom: 1px solid rgba(60,40,20,.12);
+    }
+    .section-body { padding: .85rem 1rem 1rem; }
+    details.subsection {
+      margin-top: .85rem;
+      border: 1px solid rgba(60,40,20,.1);
+      border-radius: 6px;
+      background: rgba(60,40,20,.04);
+    }
+    details.subsection:first-child { margin-top: 0; }
+    details.subsection > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: .5rem .75rem;
+      user-select: none;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: .35em;
+    }
+    details.subsection > summary::-webkit-details-marker { display: none; }
+    details.subsection > summary::before {
+      content: '▸';
+      flex-shrink: 0;
+      font-size: .85em;
+      line-height: 1;
+      transition: transform .15s;
+    }
+    details.subsection[open] > summary::before { transform: rotate(90deg); }
+    details.subsection[open] > summary {
+      border-bottom: 1px solid rgba(60,40,20,.08);
+    }
+    .subsection-body { padding: .65rem .75rem .75rem; }
     .table-wrap {
       overflow-x: auto;
-      margin: 1rem 0 2rem;
+      margin: 1rem 0 0;
       border-radius: 8px;
       border: 1px solid rgba(60,40,20,.15);
       background: rgba(255,255,255,.15);
@@ -118,13 +170,39 @@
       vertical-align: middle;
       border: 1px solid rgba(60,40,20,.25);
     }
+    .section-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin-top: 1.25rem;
+    }
+    .section-tools button {
+      display: inline-flex;
+      align-items: center;
+      gap: .45em;
+      padding: .45rem .75rem;
+      border: 1px solid rgba(60,40,20,.2);
+      border-radius: 6px;
+      background: rgba(60,40,20,.08);
+      color: #4a3020;
+      font: inherit;
+      font-size: .88rem;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .section-tools button:hover { background: rgba(60,40,20,.15); }
+    .section-tools button svg {
+      width: 1.1em;
+      height: 1.1em;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
 <div class="wrap">
   <a class="back" href="index.html">&larr; Back to tree</a>
 
-  <h1>Painterly Tree</h1>
+  <h1>Tree Generator</h1>
   <p class="subtitle">A guide to the controls in the settings panel</p>
 
   <p>
@@ -132,332 +210,408 @@
     Most structure changes rebuild the tree; style changes update colors and leaves in place.
   </p>
 
-  <h2>Navigation</h2>
-  <dl>
-    <dt>Drag (mouse held)</dt>
-    <dd>Orbit the camera around the tree. Auto-rotation pauses while the button is held.</dd>
-
-    <dt>Scroll wheel</dt>
-    <dd>Zoom in and out.</dd>
-
-    <dt>Auto Rotate</dt>
-    <dd>When enabled, the view slowly orbits on its own. Uncheck to keep the camera still.</dd>
-  </dl>
-
-  <h2>Species &amp; Archetype</h2>
-
-  <h3>Species</h3>
-  <p>Chooses a tree type and loads its default size, crown, leaf, and color settings.</p>
-  <ul>
-    <li><strong>Oak</strong> — broad, rounded crown; lobed leaves</li>
-    <li><strong>Pine</strong> — tall conical crown; needle clusters</li>
-    <li><strong>Willow</strong> — drooping branches; long narrow leaves</li>
-    <li><strong>Bonsai</strong> — compact, twisted form; dense small crown</li>
-    <li><strong>Baobab</strong> — thick trunk, flat umbrella crown</li>
-    <li><strong>Japanese Maple</strong> — delicate branching; maple-shaped leaves</li>
-  </ul>
-
-  <h3>Archetype</h3>
-  <p>
-    Sets the underlying branching architecture — how the tree grows in 3D space.
-    Each archetype is named after a real tree architectural model and adjusts
-    leader dominance, branch count, phyllotaxis (spiral angle), gravity response,
-    and horizontal spreading.
-  </p>
-  <ul>
-    <li><strong>Rauh</strong> — single dominant leader with lateral branches (typical oak-like form)</li>
-    <li><strong>Massart</strong> — strong vertical leader, whorled branching (pine-like)</li>
-    <li><strong>Troll</strong> — low, spreading, multi-stemmed habit</li>
-    <li><strong>Leeuwenberg</strong> — suppressed leader, upward-angled branches</li>
-    <li><strong>Champagnat</strong> — heavy gravity pull; branches sag downward (willow-like)</li>
-    <li><strong>Scarrone</strong> — moderate leader with layered horizontal tiers</li>
-  </ul>
-  <p class="note">Changing species resets many values to that species' preset. Changing archetype updates architectural parameters only.</p>
-
-  <h2>Growth</h2>
-  <dl>
-    <dt>Speed</dt>
-    <dd>How fast branches and leaves animate into view (0.1–3×).</dd>
-
-    <dt>Play / Pause</dt>
-    <dd>Pause or resume the growth animation.</dd>
-
-    <dt>Regrow</dt>
-    <dd>Restart growth from the beginning and re-enable auto-rotation.</dd>
-  </dl>
-
-  <h2>Structure</h2>
-  <p>These settings control the procedural skeleton of the tree. Changes rebuild the entire tree.</p>
-
-  <h3>Size</h3>
-  <dl>
-    <dt>Depth</dt>
-    <dd>Maximum branching levels (3–8). Higher values produce more detail but denser geometry.</dd>
-
-    <dt>Length Ratio</dt>
-    <dd>How much shorter each new branch is compared to its parent (0.4–0.9). Lower = stubbier branches.</dd>
-
-    <dt>Bare Trunk</dt>
-    <dd>Fraction of the trunk with no side branches (0–1). Higher = longer clear trunk before branching begins.</dd>
-
-    <dt>Taper Curve</dt>
-    <dd>How branch radius shrinks along its length: <code>linear</code>, <code>exponential</code>, or <code>stepped</code>.</dd>
-  </dl>
-
-  <h3>Branching</h3>
-  <dl>
-    <dt>Branches</dt>
-    <dd>Number of child branches spawned at each node (1–6).</dd>
-
-    <dt>Branch Jitter</dt>
-    <dd>Random variation in branch count per node (0–3).</dd>
-
-    <dt>Phyllotaxis</dt>
-    <dd>Angular offset between successive branches around the stem (0–360°). 137.5° is the golden angle.</dd>
-
-    <dt>Leader Axis</dt>
-    <dd>How strongly the main trunk continues upward vs. splitting (−1 to 1). High = single tall leader.</dd>
-  </dl>
-
-  <h3>Branch Shape</h3>
-  <dl>
-    <dt>Angle</dt>
-    <dd>Base angle at which branches leave the parent (5–95°). Low = upward; high = horizontal or drooping.</dd>
-
-    <dt>Angle Spread</dt>
-    <dd>Random variation added to the branch angle (0–45°).</dd>
-
-    <dt>Curvature</dt>
-    <dd>How much branches bend along their length (0–1).</dd>
-
-    <dt>Variance</dt>
-    <dd>Overall randomness in branch length, angle, and placement (0–1).</dd>
-  </dl>
-
-  <h3>Growth Bias</h3>
-  <dl>
-    <dt>Gravity</dt>
-    <dd>Pull branches downward (−1) or upward (+1). Zero = no gravitational bias.</dd>
-
-    <dt>Gravity Mode</dt>
-    <dd><code>constant</code> applies the same pull at every level; <code>cumulative</code> increases sag on higher-order branches.</dd>
-
-    <dt>Branch Horizontality</dt>
-    <dd>Encourages branches to spread outward horizontally (−1 to 1).</dd>
-
-    <dt>Branch Roll Snap</dt>
-    <dd>How strongly branches align to horizontal planes (0–1). Higher = flatter, more layered tiers.</dd>
-  </dl>
-
-  <h3>Crown</h3>
-  <dl>
-    <dt>Crown Shape</dt>
-    <dd>Constrains overall silhouette: <code>none</code>, <code>cone</code>, <code>sphere</code>, <code>column</code>, <code>umbrella</code>, or <code>weeping</code>.</dd>
-  </dl>
-
-  <h2>Style</h2>
-  <p>Visual appearance of bark and foliage. Color changes apply immediately; density and size rebuild leaves.</p>
-  <dl>
-    <dt>Trunk</dt>
-    <dd>Bark color at the base of branches.</dd>
-
-    <dt>Leaves</dt>
-    <dd>Leaf color tint.</dd>
-
-    <dt>Leaf Density</dt>
-    <dd>Number of leaf clusters per branch segment (2–25).</dd>
-
-    <dt>Leaf Size</dt>
-    <dd>Scale of individual leaf sprites (0.1–1).</dd>
-
-    <dt>Arrangement</dt>
-    <dd>How leaves attach to branches: <code>alternate</code>, <code>opposite</code>, <code>whorled</code>, <code>fascicled</code> (clusters), or <code>radial</code>.</dd>
-  </dl>
-
-  <h2>Tools</h2>
-  <dl>
-    <dt>Prune Mode</dt>
-    <dd>
-      Interactive editing. Click a branch to select it; click again to add a curve control point.
-      Drag yellow handles to bend, orange to move the branch tip.
-      Shift+click to chain selections. Delete or Backspace removes the selected branch or leaf.
-    </dd>
-
-    <dt>Show Leaves</dt>
-    <dd>Toggle leaf visibility without rebuilding the tree.</dd>
-
-    <dt>Auto Rotate</dt>
-    <dd>Enable or disable automatic camera orbit. Re-enabled by Regrow and New Seed.</dd>
-
-    <dt>New Seed</dt>
-    <dd>Generate a new random tree with the current settings and restart growth.</dd>
-  </dl>
-
-  <h2>Species Presets</h2>
-  <p>
-    Default values loaded when you pick a species. Each preset sets phenotype
-    (size, shape, leaves, colors) and picks a default archetype for branching architecture.
-  </p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Species</th>
-          <th>Archetype</th>
-          <th>Depth</th>
-          <th>Angle</th>
-          <th>Spread</th>
-          <th>Len Ratio</th>
-          <th>Trunk Len</th>
-          <th>Bare Trunk</th>
-          <th>Taper</th>
-          <th>Taper Curve</th>
-          <th>Curvature</th>
-          <th>Crown</th>
-          <th>Variance</th>
-          <th>Leaf Den</th>
-          <th>Leaf Sz</th>
-          <th>Leaf Shape</th>
-          <th>Arrangement</th>
-          <th>Trunk</th>
-          <th>Leaf</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Oak</td>
-          <td>Rauh</td>
-          <td>6</td>
-          <td>55</td>
-          <td>15</td>
-          <td>0.68</td>
-          <td>3.5</td>
-          <td>0.15</td>
-          <td>0.60</td>
-          <td>linear</td>
-          <td>0.4</td>
-          <td>sphere</td>
-          <td>0.6</td>
-          <td>12</td>
-          <td>0.1</td>
-          <td>oak</td>
-          <td>alternate</td>
-          <td><span class="swatch" style="background:#5C3A1E"></span> #5C3A1E</td>
-          <td><span class="swatch" style="background:#4A0F0C"></span> #4A0F0C</td>
-        </tr>
-        <tr>
-          <td>Pine</td>
-          <td>Massart</td>
-          <td>6</td>
-          <td>87</td>
-          <td>7</td>
-          <td>0.78</td>
-          <td>1.3</td>
-          <td>0.20</td>
-          <td>0.55</td>
-          <td>linear</td>
-          <td>0</td>
-          <td>cone</td>
-          <td>0.2</td>
-          <td>22</td>
-          <td>0.1</td>
-          <td>needle</td>
-          <td>fascicled</td>
-          <td><span class="swatch" style="background:#4A3020"></span> #4A3020</td>
-          <td><span class="swatch" style="background:#2D5A27"></span> #2D5A27</td>
-        </tr>
-        <tr>
-          <td>Willow</td>
-          <td>Champagnat</td>
-          <td>7</td>
-          <td>30</td>
-          <td>10</td>
-          <td>0.82</td>
-          <td>3.0</td>
-          <td>0.15</td>
-          <td>0.52</td>
-          <td>exponential</td>
-          <td>0.5</td>
-          <td>weeping</td>
-          <td>0.4</td>
-          <td>20</td>
-          <td>0.1</td>
-          <td>willow</td>
-          <td>alternate</td>
-          <td><span class="swatch" style="background:#5A4530"></span> #5A4530</td>
-          <td><span class="swatch" style="background:#6B8E3A"></span> #6B8E3A</td>
-        </tr>
-        <tr>
-          <td>Bonsai</td>
-          <td>Troll</td>
-          <td>5</td>
-          <td>65</td>
-          <td>15</td>
-          <td>0.62</td>
-          <td>1.6</td>
-          <td>0</td>
-          <td>0.58</td>
-          <td>linear</td>
-          <td>0.7</td>
-          <td>sphere</td>
-          <td>0.7</td>
-          <td>7</td>
-          <td>0.1</td>
-          <td>round</td>
-          <td>opposite</td>
-          <td><span class="swatch" style="background:#4A3525"></span> #4A3525</td>
-          <td><span class="swatch" style="background:#3A6B30"></span> #3A6B30</td>
-        </tr>
-        <tr>
-          <td>Baobab</td>
-          <td>Scarrone</td>
-          <td>4</td>
-          <td>45</td>
-          <td>10</td>
-          <td>0.58</td>
-          <td>3.0</td>
-          <td>0.40</td>
-          <td>0.68</td>
-          <td>exponential</td>
-          <td>0.2</td>
-          <td>umbrella</td>
-          <td>0.4</td>
-          <td>10</td>
-          <td>0.1</td>
-          <td>fan</td>
-          <td>radial</td>
-          <td><span class="swatch" style="background:#7A6050"></span> #7A6050</td>
-          <td><span class="swatch" style="background:#5A8A40"></span> #5A8A40</td>
-        </tr>
-        <tr>
-          <td>Japanese Maple</td>
-          <td>Champagnat</td>
-          <td>6</td>
-          <td>50</td>
-          <td>15</td>
-          <td>0.66</td>
-          <td>2.2</td>
-          <td>0.15</td>
-          <td>0.58</td>
-          <td>linear</td>
-          <td>0.5</td>
-          <td>sphere</td>
-          <td>0.5</td>
-          <td>16</td>
-          <td>0.1</td>
-          <td>maple</td>
-          <td>opposite</td>
-          <td><span class="swatch" style="background:#3A2A1E"></span> #3A2A1E</td>
-          <td><span class="swatch" style="background:#B02030"></span> #B02030</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="section-tools">
+    <button type="button" id="expandAll" aria-label="Expand all sections">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 11.5 2.5 6h11L8 11.5zm0 3L2.5 9h11L8 14.5z"/></svg>
+      Expand All
+    </button>
+    <button type="button" id="collapseAll" aria-label="Collapse all sections">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 4.5 13.5 10h-11L8 4.5zm0-3L13.5 7h-11L8 1.5z"/></svg>
+      Collapse All
+    </button>
   </div>
-  <p class="note">
-    <strong>Spread</strong> = angle spread &middot; <strong>Len Ratio</strong> = child branch length vs. parent &middot;
-    <strong>Taper</strong> = branch radius falloff &middot; <strong>Leaf Den</strong> = leaf density.
-    Branch tip colors are also preset per species but omitted here for brevity.
-  </p>
+
+  <details class="section" open>
+    <summary>Navigation</summary>
+    <div class="section-body">
+      <dl>
+        <dt>Drag (mouse held)</dt>
+        <dd>Orbit the camera around the tree. Auto-rotation pauses while the button is held.</dd>
+
+        <dt>Scroll wheel</dt>
+        <dd>Zoom in and out.</dd>
+
+        <dt>Auto Rotate</dt>
+        <dd>When enabled, the view slowly orbits on its own. Uncheck to keep the camera still.</dd>
+      </dl>
+    </div>
+  </details>
+
+  <details class="section" open>
+    <summary>Species &amp; Archetype</summary>
+    <div class="section-body">
+      <details class="subsection" open>
+        <summary><h3>Species</h3></summary>
+        <div class="subsection-body">
+          <p>Chooses a tree type and loads its default size, crown, leaf, and color settings.</p>
+          <ul>
+            <li><strong>Oak</strong> — broad, rounded crown; lobed leaves</li>
+            <li><strong>Pine</strong> — tall conical crown; needle clusters</li>
+            <li><strong>Willow</strong> — drooping branches; long narrow leaves</li>
+            <li><strong>Bonsai</strong> — compact, twisted form; dense small crown</li>
+            <li><strong>Baobab</strong> — thick trunk, flat umbrella crown</li>
+            <li><strong>Japanese Maple</strong> — delicate branching; maple-shaped leaves</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="subsection" open>
+        <summary><h3>Archetype</h3></summary>
+        <div class="subsection-body">
+          <p>
+            Sets the underlying branching architecture — how the tree grows in 3D space.
+            Each archetype is named after a real tree architectural model and adjusts
+            leader dominance, branch count, phyllotaxis (spiral angle), gravity response,
+            and horizontal spreading.
+          </p>
+          <ul>
+            <li><strong>Rauh</strong> — single dominant leader with lateral branches (typical oak-like form)</li>
+            <li><strong>Massart</strong> — strong vertical leader, whorled branching (pine-like)</li>
+            <li><strong>Troll</strong> — low, spreading, multi-stemmed habit</li>
+            <li><strong>Leeuwenberg</strong> — suppressed leader, upward-angled branches</li>
+            <li><strong>Champagnat</strong> — heavy gravity pull; branches sag downward (willow-like)</li>
+            <li><strong>Scarrone</strong> — moderate leader with layered horizontal tiers</li>
+          </ul>
+        </div>
+      </details>
+
+      <p class="note">Changing species resets many values to that species' preset. Changing archetype updates architectural parameters only.</p>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>Growth</summary>
+    <div class="section-body">
+      <dl>
+        <dt>Speed</dt>
+        <dd>How fast branches and leaves animate into view (0.1–3×).</dd>
+
+        <dt>Play / Pause</dt>
+        <dd>Pause or resume the growth animation.</dd>
+
+        <dt>Regrow</dt>
+        <dd>Restart growth from the beginning and re-enable auto-rotation.</dd>
+      </dl>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>Structure</summary>
+    <div class="section-body">
+      <p>These settings control the procedural skeleton of the tree. Changes rebuild the entire tree.</p>
+
+      <details class="subsection">
+        <summary><h3>Size</h3></summary>
+        <div class="subsection-body">
+          <dl>
+            <dt>Depth</dt>
+            <dd>Maximum branching levels (3–8). Higher values produce more detail but denser geometry.</dd>
+
+            <dt>Length Ratio</dt>
+            <dd>How much shorter each new branch is compared to its parent (0.4–0.9). Lower = stubbier branches.</dd>
+
+            <dt>Bare Trunk</dt>
+            <dd>Fraction of the trunk with no side branches (0–1). Higher = longer clear trunk before branching begins.</dd>
+
+            <dt>Taper Curve</dt>
+            <dd>How branch radius shrinks along its length: <code>linear</code>, <code>exponential</code>, or <code>stepped</code>.</dd>
+          </dl>
+        </div>
+      </details>
+
+      <details class="subsection">
+        <summary><h3>Branching</h3></summary>
+        <div class="subsection-body">
+          <dl>
+            <dt>Branches</dt>
+            <dd>Number of child branches spawned at each node (1–6).</dd>
+
+            <dt>Branch Jitter</dt>
+            <dd>Random variation in branch count per node (0–3).</dd>
+
+            <dt>Phyllotaxis</dt>
+            <dd>Angular offset between successive branches around the stem (0–360°). 137.5° is the golden angle.</dd>
+
+            <dt>Leader Axis</dt>
+            <dd>How strongly the main trunk continues upward vs. splitting (−1 to 1). High = single tall leader.</dd>
+          </dl>
+        </div>
+      </details>
+
+      <details class="subsection">
+        <summary><h3>Branch Shape</h3></summary>
+        <div class="subsection-body">
+          <dl>
+            <dt>Angle</dt>
+            <dd>Base angle at which branches leave the parent (5–95°). Low = upward; high = horizontal or drooping.</dd>
+
+            <dt>Angle Spread</dt>
+            <dd>Random variation added to the branch angle (0–45°).</dd>
+
+            <dt>Curvature</dt>
+            <dd>How much branches bend along their length (0–1).</dd>
+
+            <dt>Variance</dt>
+            <dd>Overall randomness in branch length, angle, and placement (0–1).</dd>
+          </dl>
+        </div>
+      </details>
+
+      <details class="subsection">
+        <summary><h3>Growth Bias</h3></summary>
+        <div class="subsection-body">
+          <dl>
+            <dt>Gravity</dt>
+            <dd>Pull branches downward (−1) or upward (+1). Zero = no gravitational bias.</dd>
+
+            <dt>Gravity Mode</dt>
+            <dd><code>constant</code> applies the same pull at every level; <code>cumulative</code> increases sag on higher-order branches.</dd>
+
+            <dt>Branch Horizontality</dt>
+            <dd>Encourages branches to spread outward horizontally (−1 to 1).</dd>
+
+            <dt>Branch Roll Snap</dt>
+            <dd>How strongly branches align to horizontal planes (0–1). Higher = flatter, more layered tiers.</dd>
+          </dl>
+        </div>
+      </details>
+
+      <details class="subsection">
+        <summary><h3>Crown</h3></summary>
+        <div class="subsection-body">
+          <dl>
+            <dt>Crown Shape</dt>
+            <dd>Constrains overall silhouette: <code>none</code>, <code>cone</code>, <code>sphere</code>, <code>column</code>, <code>umbrella</code>, or <code>weeping</code>.</dd>
+          </dl>
+        </div>
+      </details>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>Style</summary>
+    <div class="section-body">
+      <p>Visual appearance of bark and foliage. Color changes apply immediately; density and size rebuild leaves.</p>
+      <dl>
+        <dt>Trunk</dt>
+        <dd>Bark color at the base of branches.</dd>
+
+        <dt>Leaves</dt>
+        <dd>Leaf color tint.</dd>
+
+        <dt>Leaf Density</dt>
+        <dd>Number of leaf clusters per branch segment (2–25).</dd>
+
+        <dt>Leaf Size</dt>
+        <dd>Scale of individual leaf sprites (0.1–1).</dd>
+
+        <dt>Arrangement</dt>
+        <dd>How leaves attach to branches: <code>alternate</code>, <code>opposite</code>, <code>whorled</code>, <code>fascicled</code> (clusters), or <code>radial</code>.</dd>
+      </dl>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>Tools</summary>
+    <div class="section-body">
+      <dl>
+        <dt>Prune Mode</dt>
+        <dd>
+          Interactive editing. Click a branch to select it; click again to add a curve control point.
+          Drag yellow handles to bend, orange to move the branch tip.
+          Shift+click to chain selections. Delete or Backspace removes the selected branch or leaf.
+        </dd>
+
+        <dt>Show Leaves</dt>
+        <dd>Toggle leaf visibility without rebuilding the tree.</dd>
+
+        <dt>Auto Rotate</dt>
+        <dd>Enable or disable automatic camera orbit. Re-enabled by Regrow and New Seed.</dd>
+
+        <dt>New Seed</dt>
+        <dd>Generate a new random tree with the current settings and restart growth.</dd>
+      </dl>
+    </div>
+  </details>
+
+  <details class="section" open>
+    <summary>Species Presets</summary>
+    <div class="section-body">
+      <p>
+        Default values loaded when you pick a species. Each preset sets phenotype
+        (size, shape, leaves, colors) and picks a default archetype for branching architecture.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Species</th>
+              <th>Archetype</th>
+              <th>Depth</th>
+              <th>Angle</th>
+              <th>Spread</th>
+              <th>Len Ratio</th>
+              <th>Trunk Len</th>
+              <th>Bare Trunk</th>
+              <th>Taper</th>
+              <th>Taper Curve</th>
+              <th>Curvature</th>
+              <th>Crown</th>
+              <th>Variance</th>
+              <th>Leaf Den</th>
+              <th>Leaf Sz</th>
+              <th>Leaf Shape</th>
+              <th>Arrangement</th>
+              <th>Trunk</th>
+              <th>Leaf</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Oak</td>
+              <td>Rauh</td>
+              <td>6</td>
+              <td>55</td>
+              <td>15</td>
+              <td>0.68</td>
+              <td>3.5</td>
+              <td>0.15</td>
+              <td>0.60</td>
+              <td>linear</td>
+              <td>0.4</td>
+              <td>sphere</td>
+              <td>0.6</td>
+              <td>12</td>
+              <td>0.1</td>
+              <td>oak</td>
+              <td>alternate</td>
+              <td><span class="swatch" style="background:#5C3A1E"></span> #5C3A1E</td>
+              <td><span class="swatch" style="background:#4A0F0C"></span> #4A0F0C</td>
+            </tr>
+            <tr>
+              <td>Pine</td>
+              <td>Massart</td>
+              <td>6</td>
+              <td>87</td>
+              <td>7</td>
+              <td>0.78</td>
+              <td>1.3</td>
+              <td>0.20</td>
+              <td>0.55</td>
+              <td>linear</td>
+              <td>0</td>
+              <td>cone</td>
+              <td>0.2</td>
+              <td>22</td>
+              <td>0.1</td>
+              <td>needle</td>
+              <td>fascicled</td>
+              <td><span class="swatch" style="background:#4A3020"></span> #4A3020</td>
+              <td><span class="swatch" style="background:#2D5A27"></span> #2D5A27</td>
+            </tr>
+            <tr>
+              <td>Willow</td>
+              <td>Champagnat</td>
+              <td>7</td>
+              <td>30</td>
+              <td>10</td>
+              <td>0.82</td>
+              <td>3.0</td>
+              <td>0.15</td>
+              <td>0.52</td>
+              <td>exponential</td>
+              <td>0.5</td>
+              <td>weeping</td>
+              <td>0.4</td>
+              <td>20</td>
+              <td>0.1</td>
+              <td>willow</td>
+              <td>alternate</td>
+              <td><span class="swatch" style="background:#5A4530"></span> #5A4530</td>
+              <td><span class="swatch" style="background:#6B8E3A"></span> #6B8E3A</td>
+            </tr>
+            <tr>
+              <td>Bonsai</td>
+              <td>Troll</td>
+              <td>5</td>
+              <td>65</td>
+              <td>15</td>
+              <td>0.62</td>
+              <td>1.6</td>
+              <td>0</td>
+              <td>0.58</td>
+              <td>linear</td>
+              <td>0.7</td>
+              <td>sphere</td>
+              <td>0.7</td>
+              <td>7</td>
+              <td>0.1</td>
+              <td>round</td>
+              <td>opposite</td>
+              <td><span class="swatch" style="background:#4A3525"></span> #4A3525</td>
+              <td><span class="swatch" style="background:#3A6B30"></span> #3A6B30</td>
+            </tr>
+            <tr>
+              <td>Baobab</td>
+              <td>Scarrone</td>
+              <td>4</td>
+              <td>45</td>
+              <td>10</td>
+              <td>0.58</td>
+              <td>3.0</td>
+              <td>0.40</td>
+              <td>0.68</td>
+              <td>exponential</td>
+              <td>0.2</td>
+              <td>umbrella</td>
+              <td>0.4</td>
+              <td>10</td>
+              <td>0.1</td>
+              <td>fan</td>
+              <td>radial</td>
+              <td><span class="swatch" style="background:#7A6050"></span> #7A6050</td>
+              <td><span class="swatch" style="background:#5A8A40"></span> #5A8A40</td>
+            </tr>
+            <tr>
+              <td>Japanese Maple</td>
+              <td>Champagnat</td>
+              <td>6</td>
+              <td>50</td>
+              <td>15</td>
+              <td>0.66</td>
+              <td>2.2</td>
+              <td>0.15</td>
+              <td>0.58</td>
+              <td>linear</td>
+              <td>0.5</td>
+              <td>sphere</td>
+              <td>0.5</td>
+              <td>16</td>
+              <td>0.1</td>
+              <td>maple</td>
+              <td>opposite</td>
+              <td><span class="swatch" style="background:#3A2A1E"></span> #3A2A1E</td>
+              <td><span class="swatch" style="background:#B02030"></span> #B02030</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        <strong>Spread</strong> = angle spread &middot; <strong>Len Ratio</strong> = child branch length vs. parent &middot;
+        <strong>Taper</strong> = branch radius falloff &middot; <strong>Leaf Den</strong> = leaf density.
+        Branch tip colors are also preset per species but omitted here for brevity.
+      </p>
+    </div>
+  </details>
 </div>
+<script>
+  const allDetails = () => document.querySelectorAll('.wrap details');
+  document.getElementById('expandAll').addEventListener('click', () => {
+    allDetails().forEach(d => { d.open = true; });
+  });
+  document.getElementById('collapseAll').addEventListener('click', () => {
+    allDetails().forEach(d => { d.open = false; });
+  });
+</script>
 </body>
 </html>
