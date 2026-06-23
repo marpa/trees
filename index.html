@@ -14,20 +14,37 @@
       border-radius: 20px; font: 14px/1.4 Georgia, serif;
       display: none; pointer-events: none; text-align: center;
     }
-    #settingsLink {
+    #canvasControls {
       position: fixed; bottom: 20px; left: 20px;
+      display: flex; gap: 8px; align-items: center;
+    }
+    #settingsLink, #autoRotateBtn {
       background: rgba(60,40,20,0.75); color: #f0e6d2;
       padding: 8px 14px; border-radius: 16px;
       font: 13px/1.4 Georgia, serif;
-      text-decoration: none;
       transition: background .15s;
     }
-    #settingsLink:hover { background: rgba(60,40,20,0.92); }
+    #settingsLink {
+      text-decoration: none;
+    }
+    #settingsLink:hover, #autoRotateBtn:hover {
+      background: rgba(60,40,20,0.92);
+    }
+    #autoRotateBtn {
+      border: none;
+      cursor: pointer;
+    }
+    #autoRotateBtn[aria-pressed="false"] {
+      opacity: .72;
+    }
   </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<a id="settingsLink" href="settings.html" target="_blank">Settings guide</a>
+<div id="canvasControls">
+  <a id="settingsLink" href="settings.html" target="_blank">Settings guide</a>
+  <button type="button" id="autoRotateBtn" aria-pressed="true" aria-label="Toggle auto rotate">Auto rotate</button>
+</div>
 <div id="pruneHint">Click to select &middot; Click again to add curve point &middot; Drag yellow to curve, orange to move tip &middot; Shift+click to chain &middot; Delete to prune</div>
 <script type="importmap">
 {
@@ -1085,6 +1102,20 @@ let selectedBranches = [];
 
 controls.autoRotate = state.autoRotate;
 
+const autoRotateBtn = document.getElementById('autoRotateBtn');
+
+function updateAutoRotateButton(){
+  autoRotateBtn.setAttribute('aria-pressed', String(state.autoRotate));
+  autoRotateBtn.textContent = state.autoRotate ? 'Auto rotate' : 'Auto rotate off';
+}
+
+autoRotateBtn.addEventListener('click', () => {
+  state.autoRotate = !state.autoRotate;
+  controls.autoRotate = state.autoRotate;
+  updateAutoRotateButton();
+});
+updateAutoRotateButton();
+
 let branchMat = null;
 let leafMat = null;
 let stemMat = null;
@@ -1644,7 +1675,7 @@ fGrow.add({ regrow(){
   state.playing=true;
   state.autoRotate = true;
   controls.autoRotate = true;
-  refreshGUI();
+  updateAutoRotateButton();
 } }, 'regrow').name('Regrow');
 
 const fStruct = gui.addFolder('Structure');
@@ -1700,14 +1731,12 @@ gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
   if(leafPoints) leafPoints.visible = v;
   if(leafStems) leafStems.visible = v;
 });
-gui.add(state,'autoRotate').name('Auto Rotate').onChange(v => {
-  controls.autoRotate = v;
-});
 
 gui.add({ newSeed(){
   state.seed=Math.floor(Math.random()*99999);
   state.autoRotate = true;
   controls.autoRotate = true;
+  updateAutoRotateButton();
   rebuild();
   refreshGUI();
 }}, 'newSeed').name('New Seed');
