@@ -46,6 +46,7 @@
   <button type="button" id="autoRotateBtn" aria-pressed="true" aria-label="Toggle auto rotate">Auto rotate</button>
 </div>
 <div id="pruneHint">Click to select &middot; Click again to add curve point &middot; Drag yellow to curve, orange to move tip &middot; Shift+click to chain &middot; Delete to prune</div>
+<input type="file" id="presetImport" accept=".json,application/json" hidden>
 <script type="importmap">
 {
   "imports": {
@@ -1644,6 +1645,83 @@ function rebuild(){
   controls.target.set(0, state.trunkLen * 1.2, 0);
 }
 
+/* ───────── saved presets ───────── */
+
+const PRESET_STORAGE_KEY = 'treeGeneratorPresets';
+
+const SAVE_KEYS = [
+  'species', 'seed', 'growSpeed', 'showLeaves', 'autoRotate',
+  'maxDepth', 'angle', 'angleSpread', 'lenRatio', 'trunkLen', 'trunkRad',
+  'taper', 'taperCurve', 'bareTrunk', 'curvature', 'crownShape', 'variance',
+  'leafDen', 'leafSz', 'trunkCol', 'tipCol', 'leafCol', 'leafShape', 'leafArr',
+  'leaderAxis', 'branches', 'branchJitter', 'phyllotaxis', 'branchHorizontalPull',
+  'branchRollSnap', 'gravity', 'gravityMode',
+];
+
+const PRESET_ENUMS = {
+  taperCurve: ['linear', 'exponential', 'stepped'],
+  crownShape: ['none', 'cone', 'sphere', 'column', 'umbrella', 'weeping'],
+  gravityMode: ['constant', 'cumulative'],
+  leafArr: ['alternate', 'opposite', 'whorled', 'fascicled', 'radial'],
+};
+
+function validatePreset(data){
+  if(!data || data.version !== 1) return false;
+  if(!data.state || typeof data.state !== 'object') return false;
+  if(!data.archetype || !(data.archetype in ARCHETYPES)) return false;
+  if(!data.state.species || !(data.state.species in PRESETS)) return false;
+  for(const k of SAVE_KEYS){
+    if(!(k in data.state)) return false;
+  }
+  for(const [k, vals] of Object.entries(PRESET_ENUMS)){
+    if(!vals.includes(data.state[k])) return false;
+  }
+  return true;
+}
+
+function readPresetStore(){
+  try{
+    const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    if(!raw) return { version: 1, presets: [] };
+    const data = JSON.parse(raw);
+    if(!data || !Array.isArray(data.presets)) return { version: 1, presets: [] };
+    return data;
+  }catch{
+    return { version: 1, presets: [] };
+  }
+}
+
+function writePresetStore(data){
+  try{
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(data));
+    return true;
+  }catch{
+    return false;
+  }
+}
+
+function listPresetNames(){
+  return readPresetStore().presets.map(p => p.name);
+}
+
+function deleteNamedPreset(name){
+  const store = readPresetStore();
+  const next = store.presets.filter(p => p.name !== name);
+  if(next.length === store.presets.length) return false;
+  store.presets = next;
+  writePresetStore(store);
+  return true;
+}
+
+function downloadPresetJSON(preset){
+  const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${preset.name || 'tree-preset'}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 /* ───────── GUI ───────── */
 
 const gui = new GUI({ title: 'Tree Generator' });
@@ -1742,6 +1820,174 @@ gui.add({ newSeed(){
 }}, 'newSeed').name('New Seed');
 
 function refreshGUI(){ gui.controllersRecursive().forEach(c => c.updateDisplay()); }
+
+function exportSettings(name = ''){
+  const snapshot = {};
+  for(const k of SAVE_KEYS) snapshot[k] = state[k];
+  return {
+    version: 1,
+    name,
+    savedAt: new Date().toISOString(),
+    archetype: archObj.archetype,
+    state: snapshot,
+  };
+}
+
+function applySettings(preset){
+  if(!validatePreset(preset)) return false;
+  Object.assign(state, structuredClone(preset.state));
+  state.growthTime = 0;
+  state.playing = true;
+  state.pruneMode = false;
+  pruneHint.style.display = 'none';
+  clearBranchSel();
+  clearLeafSel();
+  specObj.species = state.species;
+  archObj.archetype = preset.archetype;
+  controls.autoRotate = state.autoRotate;
+  updateAutoRotateButton();
+  if(leafPoints) leafPoints.visible = state.showLeaves;
+  if(leafStems) leafStems.visible = state.showLeaves;
+  rebuild();
+  refreshGUI();
+  return true;
+}
+
+function saveNamedPreset(name){
+  const trimmed = name.trim();
+  if(!trimmed) return false;
+  const store = readPresetStore();
+  const preset = exportSettings(trimmed);
+  const idx = store.presets.findIndex(p => p.name === trimmed);
+  if(idx >= 0) store.presets[idx] = preset;
+  else store.presets.push(preset);
+  if(!writePresetStore(store)) return false;
+  return true;
+}
+
+function loadNamedPreset(name){
+  const preset = readPresetStore().presets.find(p => p.name === name);
+  if(!preset) return false;
+  return applySettings(preset);
+}
+
+const presetObj = { preset: '', saveName: '' };
+let presetCtrl = null;
+
+const presetActions = {
+  savePreset(){
+    const trimmed = presetObj.saveName.trim();
+    if(!trimmed){
+      window.alert('Enter a preset name first.');
+      return;
+    }
+    const exists = listPresetNames().includes(trimmed);
+    if(exists && !window.confirm(`Overwrite "${trimmed}"?`)) return;
+    if(!saveNamedPreset(trimmed)){
+      window.alert('Could not save preset. Storage may be unavailable.');
+      return;
+    }
+    presetObj.preset = trimmed;
+    refreshPresetDropdown();
+  },
+  loadPreset(){
+    const name = presetObj.preset;
+    if(!name || name === '(none)'){
+      window.alert('No saved preset selected.');
+      return;
+    }
+    if(!loadNamedPreset(name)){
+      window.alert(`Could not load "${name}".`);
+    }
+  },
+  deletePreset(){
+    const name = presetObj.preset;
+    if(!name || name === '(none)'){
+      window.alert('No saved preset selected.');
+      return;
+    }
+    if(!window.confirm(`Delete "${name}"?`)) return;
+    deleteNamedPreset(name);
+    refreshPresetDropdown();
+  },
+  exportJSON(){
+    const name = presetObj.preset;
+    if(!name || name === '(none)'){
+      window.alert('No saved preset selected.');
+      return;
+    }
+    const preset = readPresetStore().presets.find(p => p.name === name);
+    if(preset) downloadPresetJSON(preset);
+  },
+  importJSON(){
+    document.getElementById('presetImport').click();
+  },
+};
+
+const fPresets = gui.addFolder('Presets');
+fPresets.add(presetObj, 'saveName').name('Name');
+
+function refreshPresetDropdown(){
+  const names = listPresetNames();
+  if(!names.length){
+    presetObj.preset = '';
+    if(!presetCtrl){
+      presetCtrl = fPresets.add(presetObj, 'preset', ['(none)']).name('Saved');
+    }else{
+      presetCtrl.options(['(none)']);
+    }
+    presetCtrl.disable();
+    presetCtrl.updateDisplay();
+    return;
+  }
+  if(!names.includes(presetObj.preset)) presetObj.preset = names[0];
+  if(!presetObj.saveName) presetObj.saveName = presetObj.preset;
+  if(!presetCtrl){
+    presetCtrl = fPresets.add(presetObj, 'preset', names).name('Saved');
+  }else{
+    presetCtrl.enable();
+    presetCtrl.options(names);
+    presetCtrl.updateDisplay();
+  }
+}
+
+refreshPresetDropdown();
+fPresets.add(presetActions, 'savePreset').name('Save');
+fPresets.add(presetActions, 'loadPreset').name('Load');
+fPresets.add(presetActions, 'deletePreset').name('Delete');
+fPresets.add(presetActions, 'exportJSON').name('Export JSON');
+fPresets.add(presetActions, 'importJSON').name('Import JSON');
+
+document.getElementById('presetImport').addEventListener('change', e => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const data = JSON.parse(reader.result);
+      if(!validatePreset(data)){
+        alert('Invalid preset file.');
+        return;
+      }
+      const name = (data.name || 'Imported preset').trim();
+      data.name = name;
+      const store = readPresetStore();
+      const idx = store.presets.findIndex(p => p.name === name);
+      if(idx >= 0 && !confirm(`Overwrite saved preset "${name}"?`)) return;
+      if(idx >= 0) store.presets[idx] = data;
+      else store.presets.push(data);
+      writePresetStore(store);
+      presetObj.preset = name;
+      presetObj.saveName = name;
+      refreshPresetDropdown();
+      if(confirm(`Import "${name}". Load it now?`)) loadNamedPreset(name);
+    }catch{
+      alert('Could not read preset file.');
+    }
+  };
+  reader.readAsText(file);
+});
 
 /* ───────── animate ───────── */
 
