@@ -164,18 +164,24 @@ const leafVert = /* glsl */`
 attribute float aGrowEnd;
 attribute float aSize;
 attribute float aRot;
+attribute vec3 aAttach;
 uniform float uReveal;
 varying float vAlpha;
 varying vec3 vCol;
 varying float vRot;
 void main(){
   vCol = pow(color, vec3(.45));
-  vRot = aRot;
   float t = smoothstep(aGrowEnd-.08, aGrowEnd+.05, uReveal);
   vAlpha = t;
   vec4 mv = modelViewMatrix * vec4(position,1.);
+  vec4 clipP = projectionMatrix * mv;
+  vec4 clipA = projectionMatrix * (modelViewMatrix * vec4(aAttach,1.));
+  vec2 dir = clipP.xy/clipP.w - clipA.xy/clipA.w;
+  // Rotate so the leaf tip points away from its stem attachment on screen.
+  float ang = length(dir) > 1e-6 ? atan(dir.y, dir.x) + 1.5707963 : 3.14159265;
+  vRot = ang + aRot;
   gl_PointSize = aSize * t * (250./-mv.z);
-  gl_Position = projectionMatrix * mv;
+  gl_Position = clipP;
   if(t<.01) gl_Position = vec4(9999.);
 }`;
 
@@ -868,11 +874,25 @@ function bentPointAt(node, t, angle, radius){
   return node.start.clone().add(local).addScaledVector(perp, radius);
 }
 
+// World-space frame on a branch: center point, outward radial, and forward tangent.
+function leafFrame(node, t, angle){
+  const tc = clamp01(t);
+  const spline = buildNodeSpline(node);
+  const local = spline.getPointAt(tc);
+  const forward = spline.getTangentAt(tc);
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, node.dir);
+  local.applyQuaternion(q);
+  forward.applyQuaternion(q).normalize();
+  const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+  radial.applyQuaternion(q).normalize();
+  return { center: node.start.clone().add(local), radial, forward };
+}
+
 const GOLDEN_ANGLE = 2.399963;
 
-function getLeafPlacements(node, params, rng){
+function getLeafPlacements(node, params, rng, denScale = 1){
   const arr = params.leafArr || 'alternate';
-  const den = Math.floor(rng.range(3, params.leafDen + 1));
+  const den = Math.max(2, Math.round(rng.range(3, params.leafDen + 1) * denScale));
   const radBase = node.rad * 0.8 + 0.04;
   const placements = [];
 
@@ -949,60 +969,90 @@ function getLeafPlacements(node, params, rng){
 }
 
 function buildLeaves(root, params, rng){
-  const positions=[], colors=[], growEnds=[], sizes=[], rots=[], owners=[];
+  const positions=[], colors=[], growEnds=[], sizes=[], rots=[], attaches=[], owners=[];
   const stemPositions=[], stemGrowEnds=[];
   const lc = new THREE.Color(params.leafCol);
   const maxGrow = params.maxDepth * .5 + .8;
   const stemLen = params.stemLen != null ? params.stemLen : 0.08;
   // No visible petioles for needle clusters.
   const hasStems = stemLen > 0 && params.leafArr !== 'fascicled';
+  const UP_VEC = new THREE.Vector3(0, 1, 0);
+
+  function pickLeafColor(){
+    let r, g, b;
+    if(params.leafShape === 'oak'){
+      const autumn = [
+        [0.44, 0.11, 0.03], [0.40, 0.09, 0.02], [0.36, 0.07, 0.02],
+        [0.32, 0.06, 0.02], [0.48, 0.13, 0.04], [0.42, 0.10, 0.03],
+        [0.38, 0.04, 0.07], [0.34, 0.03, 0.06], [0.30, 0.025, 0.05],
+        [0.42, 0.06, 0.08], [0.36, 0.04, 0.06], [0.46, 0.08, 0.05],
+        [0.40, 0.12, 0.04], [0.34, 0.08, 0.03], [0.50, 0.14, 0.05],
+      ];
+      const pick = autumn[Math.floor(rng.random() * autumn.length)];
+      r = Math.max(0, pick[0] + rng.range(-0.03, 0.02));
+      g = Math.max(0, pick[1] + rng.range(-0.03, 0.02));
+      b = Math.max(0, pick[2] + rng.range(-0.025, 0.015));
+      if(rng.random() < 0.12){
+        r = Math.max(0, r * 0.48 + rng.range(0, 0.05));
+        g = Math.max(0, g * 0.45 + rng.range(0, 0.04));
+        b = Math.max(0, b * 0.42);
+      }
+    } else {
+      r = Math.max(0, lc.r + rng.range(-.08, .08));
+      g = Math.max(0, lc.g + rng.range(-.1, .1));
+      b = Math.max(0, lc.b + rng.range(-.06, .06));
+    }
+    return [r, g, b];
+  }
+
+  function pushLeaf(p, attach, node, rotJitter, sizeScale = 1){
+    positions.push(p.x, p.y, p.z);
+    attaches.push(attach.x, attach.y, attach.z);
+    const [r, g, b] = pickLeafColor();
+    colors.push(r, g, b);
+    growEnds.push((node.growStart + .8) / (maxGrow*1.1) + rng.range(0,.08));
+    sizes.push(rng.range(params.leafSz*8, params.leafSz*18) * sizeScale);
+    rots.push(rng.range(-rotJitter, rotJitter));
+    owners.push(node);
+  }
 
   function visit(node){
     if(node.pruned) return;
     const living = node.children.filter(c => !c.pruned);
     const isTerminal = living.length === 0;
     if(node.depth >= params.maxDepth - 1 || isTerminal){
-      const placements = getLeafPlacements(node, params, rng);
+      // Pads bundle several leaves per stem, so thin out the placement count.
+      const placements = getLeafPlacements(node, params, rng, hasStems ? 0.4 : 1);
       for(const pl of placements){
-        let p;
         if(hasStems){
-          const attach = bentPointAt(node, pl.t, pl.angle, node.rad);
-          p = bentPointAt(node, pl.t, pl.angle, node.rad + stemLen);
-          stemPositions.push(attach.x, attach.y, attach.z, p.x, p.y, p.z);
+          const fr = leafFrame(node, pl.t, pl.angle);
+          const attach = fr.center.clone().addScaledVector(fr.radial, node.rad);
+          // Petiole leans toward the branch tip and lifts toward the light.
+          const stemTip = attach.clone()
+            .addScaledVector(fr.radial, stemLen * 0.6)
+            .addScaledVector(fr.forward, stemLen * 0.5)
+            .addScaledVector(UP_VEC, stemLen * 0.35);
+          stemPositions.push(attach.x, attach.y, attach.z, stemTip.x, stemTip.y, stemTip.z);
           const gEnd = (node.growStart + .8) / (maxGrow*1.1);
           stemGrowEnds.push(gEnd, gEnd);
-        } else {
-          p = bentPointAt(node, pl.t, pl.angle, pl.radius);
-        }
-        positions.push(p.x,p.y,p.z);
-        let r, g, b;
-        if(params.leafShape === 'oak'){
-          const autumn = [
-            [0.44, 0.11, 0.03], [0.40, 0.09, 0.02], [0.36, 0.07, 0.02],
-            [0.32, 0.06, 0.02], [0.48, 0.13, 0.04], [0.42, 0.10, 0.03],
-            [0.38, 0.04, 0.07], [0.34, 0.03, 0.06], [0.30, 0.025, 0.05],
-            [0.42, 0.06, 0.08], [0.36, 0.04, 0.06], [0.46, 0.08, 0.05],
-            [0.40, 0.12, 0.04], [0.34, 0.08, 0.03], [0.50, 0.14, 0.05],
-          ];
-          const pick = autumn[Math.floor(rng.random() * autumn.length)];
-          r = Math.max(0, pick[0] + rng.range(-0.03, 0.02));
-          g = Math.max(0, pick[1] + rng.range(-0.03, 0.02));
-          b = Math.max(0, pick[2] + rng.range(-0.025, 0.015));
-          if(rng.random() < 0.12){
-            r = Math.max(0, r * 0.48 + rng.range(0, 0.05));
-            g = Math.max(0, g * 0.45 + rng.range(0, 0.04));
-            b = Math.max(0, b * 0.42);
+
+          // A pad of overlapping leaves fanning out from the stem tip.
+          const padCount = 3 + Math.floor(rng.random() * 4);
+          const spread = params.leafSz * 1.4;
+          for(let i = 0; i < padCount; i++){
+            const p = stemTip.clone()
+              .addScaledVector(fr.radial, rng.range(0, spread))
+              .addScaledVector(fr.forward, rng.range(-spread * 0.4, spread * 0.8))
+              .addScaledVector(UP_VEC, rng.range(-spread * 0.15, spread * 0.6));
+            p.x += rng.range(-spread * 0.4, spread * 0.4);
+            p.z += rng.range(-spread * 0.4, spread * 0.4);
+            pushLeaf(p, stemTip, node, 0.35, rng.range(0.75, 1.1));
           }
         } else {
-          r = Math.max(0, lc.r + rng.range(-.08, .08));
-          g = Math.max(0, lc.g + rng.range(-.1, .1));
-          b = Math.max(0, lc.b + rng.range(-.06, .06));
+          const attach = bentPointAt(node, pl.t, pl.angle, 0);
+          const p = bentPointAt(node, pl.t, pl.angle, pl.radius);
+          pushLeaf(p, attach, node, 0.45);
         }
-        colors.push(r,g,b);
-        growEnds.push((node.growStart + .8) / (maxGrow*1.1) + rng.range(0,.08));
-        sizes.push(rng.range(params.leafSz*8, params.leafSz*18));
-        rots.push(rng.range(0, Math.PI*2));
-        owners.push(node);
       }
     }
     for(const c of living) visit(c);
@@ -1015,6 +1065,7 @@ function buildLeaves(root, params, rng){
   geo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(growEnds,1));
   geo.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes,1));
   geo.setAttribute('aRot', new THREE.Float32BufferAttribute(rots,1));
+  geo.setAttribute('aAttach', new THREE.Float32BufferAttribute(attaches,3));
   geo.userData = { owners };
 
   let stemGeo = null;
