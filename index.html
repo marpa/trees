@@ -135,6 +135,7 @@ void main(){
 const branchFrag = /* glsl */`
 uniform vec3 uBase, uTip;
 uniform float uGrowTime;
+uniform float uWater, uInk;
 varying vec3 vNormal, vWorldPos;
 varying vec2 vUv;
 varying float vGrowEnd;
@@ -147,17 +148,46 @@ void main(){
   vec3 col = mix(uBase, uTip, vUv.y);
   col += (hash(vWorldPos*6.0)-.5)*.12;
 
-  col = pow(col, vec3(.45));
+  // Noise can push channels negative; pow of a negative base is NaN.
+  col = pow(max(col, 0.), vec3(.45));
 
   vec3 ld = normalize(vec3(.5,1.,.3));
   float diff = max(dot(vNormal,ld),0.)*.4+.65;
   diff = floor(diff*4.)/4.*.25 + diff*.75;
 
+  // abs(): tube normals may face inward depending on frame handedness, and
+  // the silhouette term must not saturate when they do.
   vec3 vd = normalize(cameraPosition - vWorldPos);
-  float rim = 1.-max(dot(vNormal,vd),0.);
+  float rim = 1.-abs(dot(vNormal,vd));
   col *= 1.-rim*.12;
 
-  gl_FragColor = vec4(col*diff, 1.);
+  vec3 paint = col*diff;
+
+  // Watercolor wash: flatter light, pigment diluted toward paper white,
+  // and the rim reads as pigment pooling at the silhouette.
+  float lum = dot(col, vec3(.299,.587,.114));
+  vec3 wash = mix(vec3(lum), col, .8) * (diff*.3+.7);
+  wash = mix(vec3(1.), wash, .85);
+  wash *= 1.-rim*.10;
+
+  // Ink: bare paper with a silhouette outline, light hatching in shadowed
+  // areas, and sparse bark flecks.
+  vec3 paper = vec3(.965,.95,.915);
+  vec3 inkTone = vec3(.13,.12,.15);
+  float outline = smoothstep(.5, .82, rim);
+  // Strokes run along the branch: stripes across the circumference (uv.x).
+  float phase = vUv.x * 43.98;
+  float stripe = .5+.5*sin(phase);
+  // Fade hatching out where the stripes would alias into solid gray.
+  float hatchVis = 1.-smoothstep(1.5, 4., fwidth(phase));
+  float shadow = 1.-smoothstep(.62, .85, diff);
+  float hatch = shadow * smoothstep(.55, .8, stripe) * .55 * hatchVis;
+  float fleck = step(.96, hash(vWorldPos*9.)) * .25;
+  vec3 ink = mix(paper, inkTone, clamp(outline + hatch + fleck, 0., 1.));
+
+  vec3 outCol = mix(paint, wash, uWater);
+  outCol = mix(outCol, ink, uInk);
+  gl_FragColor = vec4(outCol, 1.);
 }`;
 
 // Leaves are instanced quads: each instance carries a full world orientation
@@ -182,6 +212,7 @@ void main(){
 
 const leafFrag = /* glsl */`
 uniform sampler2D uMap;
+uniform float uWater, uInk;
 varying float vAlpha;
 varying vec3 vCol;
 varying vec2 vUv;
@@ -191,7 +222,21 @@ void main(){
   if(a < .12) discard;
   vec3 col = vCol * (.85 + tex.r * .15);
   if(!gl_FrontFacing) col *= .82;
-  gl_FragColor = vec4(col, a * .92);
+
+  // Watercolor: diluted pigment, and the texture's darkened rim (baked in
+  // makeLeafTex) modulates strongly so edges look pooled. Washes overlap
+  // translucently.
+  vec3 wash = mix(vec3(1.), vCol, .8) * (.55 + tex.r * .45);
+  if(!gl_FrontFacing) wash *= .93;
+
+  // Ink: the texture's darkened rim becomes the pen stroke, the interior
+  // stays bare paper.
+  vec3 inkLeaf = mix(vec3(.15,.14,.17), vec3(.96,.945,.91), smoothstep(.1,.75,tex.r));
+
+  vec3 outCol = mix(col, wash, uWater);
+  outCol = mix(outCol, inkLeaf, uInk);
+  float outA = a * mix(mix(.92, .8, uWater), .95, uInk);
+  gl_FragColor = vec4(outCol, outA);
 }`;
 
 const stemVert = /* glsl */`
@@ -216,19 +261,41 @@ const postVert = /* glsl */`varying vec2 vUv; void main(){ vUv=uv; gl_Position=p
 const postFrag = /* glsl */`
 uniform sampler2D tDiffuse;
 uniform float uTime;
+uniform float uStyle; // 0 = painterly, 1 = watercolor, 2 = ink
 varying vec2 vUv;
 float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f*f*(3.-2.*f);
+  return mix(mix(rand(i), rand(i+vec2(1,0)), f.x),
+             mix(rand(i+vec2(0,1)), rand(i+vec2(1,1)), f.x), f.y);
+}
 void main(){
-  vec4 col = texture2D(tDiffuse, vUv);
-  col.rgb += (rand(vUv*800.+uTime*.3)-.5)*.06;
-  vec2 q = vUv-.5;
-  col.rgb *= 1.-dot(q,q)*.4;
+  vec2 uv = vUv;
+  if(uStyle > .5){
+    // Hand wobble: nudge sampling so hard CG edges waver like strokes.
+    // Subtler for ink (pen lines) than watercolor (brush).
+    uv += (vec2(vnoise(vUv*38.), vnoise(vUv*38.+17.3)) - .5) * (uStyle > 1.5 ? .002 : .004);
+  }
+  vec4 col = texture2D(tDiffuse, uv);
+  if(uStyle > 1.5){
+    // Ink: clean paper, only a whisper of vignette.
+    vec2 q = vUv-.5;
+    col.rgb *= 1.-dot(q,q)*.1;
+  } else if(uStyle > .5){
+    vec2 q = vUv-.5;
+    col.rgb *= 1.-dot(q,q)*.22;
+  } else {
+    col.rgb += (rand(vUv*800.+uTime*.3)-.5)*.06;
+    vec2 q = vUv-.5;
+    col.rgb *= 1.-dot(q,q)*.4;
+  }
   gl_FragColor = col;
 }`;
 
 /* ───────── leaf texture ───────── */
 
-function makeLeafTex(shape = 'oak'){
+function makeLeafTex(shape = 'oak', style = 'painterly'){
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const ctx = c.getContext('2d');
@@ -412,7 +479,36 @@ function makeLeafTex(shape = 'oak'){
     ctx.stroke();
   }
 
-  const t = new THREE.CanvasTexture(c);
+  let out = c;
+  if(style === 'watercolor' || style === 'ink'){
+    // Darken pixels near the alpha edge so the shader (which shades by tex.r)
+    // reads them as pooled pigment (watercolor) or a pen stroke (ink).
+    // Watercolor also softens the silhouette; ink stays crisp and darker.
+    const inked = style === 'ink';
+    const soft = document.createElement('canvas');
+    soft.width = soft.height = 64;
+    const sctx = soft.getContext('2d');
+    if(!inked) sctx.filter = 'blur(0.8px)';
+    sctx.drawImage(c, 0, 0);
+    sctx.filter = 'none';
+    const img = sctx.getImageData(0, 0, 64, 64);
+    const d = img.data;
+    const alphaAt = (x, y) => d[(y*64 + x)*4 + 3];
+    for(let y = 1; y < 63; y++){
+      for(let x = 1; x < 63; x++){
+        const i = (y*64 + x)*4;
+        if(d[i+3] === 0) continue;
+        const grad = Math.abs(alphaAt(x+1,y) - alphaAt(x-1,y))
+                   + Math.abs(alphaAt(x,y+1) - alphaAt(x,y-1));
+        const dark = 1 - Math.min(grad/(inked ? 210 : 320), 1) * (inked ? 0.95 : 0.5);
+        d[i] *= dark; d[i+1] *= dark; d[i+2] *= dark;
+      }
+    }
+    sctx.putImageData(img, 0, 0);
+    out = soft;
+  }
+
+  const t = new THREE.CanvasTexture(out);
   t.needsUpdate = true;
   return t;
 }
@@ -1126,7 +1222,7 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
 const postShader = {
-  uniforms: { tDiffuse:{value:null}, uTime:{value:0} },
+  uniforms: { tDiffuse:{value:null}, uTime:{value:0}, uStyle:{value:0} },
   vertexShader: postVert,
   fragmentShader: postFrag,
 };
@@ -1154,6 +1250,7 @@ const state = {
   pruneMode: false,
   showLeaves: true,
   autoRotate: true,
+  renderStyle: 'painterly',
   ...structuredClone(PRESETS.Oak),
   ...structuredClone(ARCHETYPES[PRESETS.Oak.archetype]),
 };
@@ -1183,17 +1280,35 @@ let leafTex = makeLeafTex('oak');
 
 function makeBranchMat(base, tip){
   return new THREE.ShaderMaterial({
-    uniforms:{ uBase:{value:new THREE.Color(base)}, uTip:{value:new THREE.Color(tip)}, uGrowTime:{value:99} },
+    uniforms:{
+      uBase:{value:new THREE.Color(base)}, uTip:{value:new THREE.Color(tip)},
+      uGrowTime:{value:99},
+      uWater:{value: state.renderStyle === 'watercolor' ? 1 : 0},
+      uInk:{value: state.renderStyle === 'ink' ? 1 : 0},
+    },
     vertexShader: branchVert, fragmentShader: branchFrag,
   });
 }
 
 function makeLeafMat(){
   return new THREE.ShaderMaterial({
-    uniforms:{ uReveal:{value:0}, uMap:{value:leafTex} },
+    uniforms:{
+      uReveal:{value:0}, uMap:{value:leafTex},
+      uWater:{value: state.renderStyle === 'watercolor' ? 1 : 0},
+      uInk:{value: state.renderStyle === 'ink' ? 1 : 0},
+    },
     vertexShader: leafVert, fragmentShader: leafFrag,
     transparent: true, depthWrite: true, side: THREE.DoubleSide,
   });
+}
+
+function applyRenderStyle(){
+  const s = state.renderStyle;
+  scene.background = new THREE.Color(
+    s === 'ink' ? '#f6f2e8' : s === 'watercolor' ? '#f4eede' : '#d8cfbb');
+  postPass.uniforms.uStyle.value = s === 'ink' ? 2 : s === 'watercolor' ? 1 : 0;
+  groundMat.color.set(s === 'ink' ? '#8e8a80' : '#b8a888');
+  groundMat.opacity = s === 'ink' ? .18 : .35;
 }
 
 function stemColorFromLeaf(leafColHex){
@@ -1207,7 +1322,9 @@ function makeStemMat(){
   return new THREE.ShaderMaterial({
     uniforms:{
       uReveal:{ value: 0 },
-      uColor:{ value: stemColorFromLeaf(state.leafCol) },
+      uColor:{ value: state.renderStyle === 'ink'
+        ? new THREE.Color('#26242d')
+        : stemColorFromLeaf(state.leafCol) },
     },
     vertexShader: stemVert, fragmentShader: stemFrag,
     transparent: true, depthWrite: false,
@@ -1677,9 +1794,10 @@ function rebuild(){
   state.playing = true;
   nodeId = 0;
 
+  applyRenderStyle();
   branchMat = makeBranchMat(state.trunkCol, state.tipCol);
   branchMat.uniforms.uGrowTime.value = 0;
-  leafTex = makeLeafTex(state.leafShape || 'oak');
+  leafTex = makeLeafTex(state.leafShape || 'oak', state.renderStyle);
   leafMat = makeLeafMat();
   stemMat = makeStemMat();
   leafStems = null;
@@ -1715,14 +1833,18 @@ const SAVE_KEYS = [
   'taper', 'taperCurve', 'bareTrunk', 'curvature', 'crownShape', 'variance',
   'leafDen', 'leafSz', 'trunkCol', 'tipCol', 'leafCol', 'leafShape', 'leafArr',
   'leaderAxis', 'branches', 'branchJitter', 'phyllotaxis', 'branchHorizontalPull',
-  'branchRollSnap', 'gravity', 'gravityMode',
+  'branchRollSnap', 'gravity', 'gravityMode', 'renderStyle',
 ];
+
+// Keys added after the preset format shipped; older saves may lack them.
+const OPTIONAL_SAVE_KEYS = ['renderStyle'];
 
 const PRESET_ENUMS = {
   taperCurve: ['linear', 'exponential', 'stepped'],
   crownShape: ['none', 'cone', 'sphere', 'column', 'umbrella', 'weeping'],
   gravityMode: ['constant', 'cumulative'],
   leafArr: ['alternate', 'opposite', 'whorled', 'fascicled', 'radial'],
+  renderStyle: ['painterly', 'watercolor', 'ink'],
 };
 
 function validatePreset(data){
@@ -1731,10 +1853,10 @@ function validatePreset(data){
   if(!data.archetype || !(data.archetype in ARCHETYPES)) return false;
   if(!data.state.species || !(data.state.species in PRESETS)) return false;
   for(const k of SAVE_KEYS){
-    if(!(k in data.state)) return false;
+    if(!(k in data.state) && !OPTIONAL_SAVE_KEYS.includes(k)) return false;
   }
   for(const [k, vals] of Object.entries(PRESET_ENUMS)){
-    if(!vals.includes(data.state[k])) return false;
+    if(k in data.state && !vals.includes(data.state[k])) return false;
   }
   return true;
 }
@@ -1850,6 +1972,7 @@ structCtrls.forEach(c => c.onChange(() => rebuild()));
 fStruct.close();
 
 const fStyle = gui.addFolder('Style');
+fStyle.add(state,'renderStyle',['painterly','watercolor','ink']).name('Render Style').onChange(()=>rebuild());
 fStyle.addColor(state,'trunkCol').name('Trunk').onChange(()=>rebuild());
 fStyle.addColor(state,'leafCol').name('Leaves').onChange(()=>rebuildLeaves());
 fStyle.add(state,'leafDen',2,25,1).name('Leaf Density').onChange(()=>rebuildLeaves());
@@ -2058,7 +2181,8 @@ function animate(){
   const dt = Math.min(clock.getDelta(), .05);
   controls.update();
   updateGrowth(dt);
-  postShader.uniforms.uTime.value = clock.elapsedTime;
+  // ShaderPass clones the uniforms object, so update the pass's copy.
+  postPass.uniforms.uTime.value = clock.elapsedTime;
 
   for(let i = fallingDebris.length-1; i>=0; i--){
     const d = fallingDebris[i];
