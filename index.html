@@ -160,44 +160,37 @@ void main(){
   gl_FragColor = vec4(col*diff, 1.);
 }`;
 
+// Leaves are instanced quads: each instance carries a full world orientation
+// so leaves foreshorten and show their backs as the camera moves.
 const leafVert = /* glsl */`
 attribute float aGrowEnd;
-attribute float aSize;
-attribute float aRot;
-attribute vec3 aAttach;
+attribute vec3 aCol;
 uniform float uReveal;
 varying float vAlpha;
 varying vec3 vCol;
-varying float vRot;
+varying vec2 vUv;
 void main(){
-  vCol = pow(color, vec3(.45));
+  vCol = pow(aCol, vec3(.45));
   float t = smoothstep(aGrowEnd-.08, aGrowEnd+.05, uReveal);
   vAlpha = t;
-  vec4 mv = modelViewMatrix * vec4(position,1.);
-  vec4 clipP = projectionMatrix * mv;
-  vec4 clipA = projectionMatrix * (modelViewMatrix * vec4(aAttach,1.));
-  vec2 dir = clipP.xy/clipP.w - clipA.xy/clipA.w;
-  // Rotate so the leaf tip points away from its stem attachment on screen.
-  float ang = length(dir) > 1e-6 ? atan(dir.y, dir.x) + 1.5707963 : 3.14159265;
-  vRot = ang + aRot;
-  gl_PointSize = aSize * t * (250./-mv.z);
-  gl_Position = clipP;
-  if(t<.01) gl_Position = vec4(9999.);
+  vUv = uv;
+  // Quad pivot sits at the leaf base, so growth scales the blade outward.
+  vec3 pos = position * t;
+  gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(pos, 1.);
+  if(t < .01) gl_Position = vec4(9999.);
 }`;
 
 const leafFrag = /* glsl */`
 uniform sampler2D uMap;
 varying float vAlpha;
 varying vec3 vCol;
-varying float vRot;
+varying vec2 vUv;
 void main(){
-  vec2 uv = gl_PointCoord - .5;
-  float cs = cos(vRot), sn = sin(vRot);
-  uv = vec2(uv.x*cs - uv.y*sn, uv.x*sn + uv.y*cs) + .5;
-  vec4 tex = texture2D(uMap, uv);
+  vec4 tex = texture2D(uMap, vUv);
   float a = tex.a * vAlpha;
   if(a < .12) discard;
   vec3 col = vCol * (.85 + tex.r * .15);
+  if(!gl_FrontFacing) col *= .82;
   gl_FragColor = vec4(col, a * .92);
 }`;
 
@@ -969,7 +962,7 @@ function getLeafPlacements(node, params, rng, denScale = 1){
 }
 
 function buildLeaves(root, params, rng){
-  const positions=[], colors=[], growEnds=[], sizes=[], rots=[], attaches=[], owners=[];
+  const matrices=[], colors=[], growEnds=[], owners=[];
   const stemPositions=[], stemGrowEnds=[];
   const lc = new THREE.Color(params.leafCol);
   const maxGrow = params.maxDepth * .5 + .8;
@@ -1005,14 +998,31 @@ function buildLeaves(root, params, rng){
     return [r, g, b];
   }
 
-  function pushLeaf(p, attach, node, rotJitter, sizeScale = 1){
-    positions.push(p.x, p.y, p.z);
-    attaches.push(attach.x, attach.y, attach.z);
+  const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
+  const _helper = new THREE.Vector3();
+  const _m = new THREE.Matrix4();
+
+  // Anchor the quad base at `base` with the blade pointing along `bladeDir`;
+  // the plane normal is jittered around world-up so leaves tilt naturally.
+  function pushLeaf(base, bladeDir, node, sizeScale = 1){
+    _y.copy(bladeDir);
+    if(_y.lengthSq() < 1e-8) _y.set(rng.range(-1,1), 0.6, rng.range(-1,1));
+    _y.normalize();
+    _helper.set(rng.range(-0.6, 0.6), 1, rng.range(-0.6, 0.6)).normalize();
+    _x.crossVectors(_y, _helper);
+    if(_x.lengthSq() < 1e-6){ _helper.set(1, 0.1, 0); _x.crossVectors(_y, _helper); }
+    _x.normalize();
+    _z.crossVectors(_x, _y);
+    const len = rng.range(params.leafSz * 2.0, params.leafSz * 3.6) * sizeScale;
+    _x.multiplyScalar(len * 0.9);
+    _y.multiplyScalar(len);
+    _z.multiplyScalar(len);
+    _m.makeBasis(_x, _y, _z);
+    _m.setPosition(base);
+    matrices.push(..._m.elements);
     const [r, g, b] = pickLeafColor();
     colors.push(r, g, b);
     growEnds.push((node.growStart + .8) / (maxGrow*1.1) + rng.range(0,.08));
-    sizes.push(rng.range(params.leafSz*8, params.leafSz*18) * sizeScale);
-    rots.push(rng.range(-rotJitter, rotJitter));
     owners.push(node);
   }
 
@@ -1036,22 +1046,23 @@ function buildLeaves(root, params, rng){
           const gEnd = (node.growStart + .8) / (maxGrow*1.1);
           stemGrowEnds.push(gEnd, gEnd);
 
-          // A pad of overlapping leaves fanning out from the stem tip.
+          // A pad of leaves fanning out from the stem tip in 3D.
           const padCount = 3 + Math.floor(rng.random() * 4);
           const spread = params.leafSz * 1.4;
           for(let i = 0; i < padCount; i++){
-            const p = stemTip.clone()
-              .addScaledVector(fr.radial, rng.range(0, spread))
+            const dir = new THREE.Vector3()
+              .addScaledVector(fr.radial, rng.range(0.15, spread))
               .addScaledVector(fr.forward, rng.range(-spread * 0.4, spread * 0.8))
-              .addScaledVector(UP_VEC, rng.range(-spread * 0.15, spread * 0.6));
-            p.x += rng.range(-spread * 0.4, spread * 0.4);
-            p.z += rng.range(-spread * 0.4, spread * 0.4);
-            pushLeaf(p, stemTip, node, 0.35, rng.range(0.75, 1.1));
+              .addScaledVector(UP_VEC, rng.range(-spread * 0.1, spread * 0.7));
+            dir.x += rng.range(-spread * 0.4, spread * 0.4);
+            dir.z += rng.range(-spread * 0.4, spread * 0.4);
+            pushLeaf(stemTip, dir, node, rng.range(0.75, 1.1));
           }
         } else {
           const attach = bentPointAt(node, pl.t, pl.angle, 0);
-          const p = bentPointAt(node, pl.t, pl.angle, pl.radius);
-          pushLeaf(p, attach, node, 0.45);
+          const p = bentPointAt(node, pl.t, pl.angle, Math.max(pl.radius, node.rad * 0.4));
+          // Needles get a size boost: edge-on quads read thinner than sprites did.
+          pushLeaf(attach, p.sub(attach), node, 1.3);
         }
       }
     }
@@ -1059,14 +1070,17 @@ function buildLeaves(root, params, rng){
   }
   visit(root);
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
-  geo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(growEnds,1));
-  geo.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes,1));
-  geo.setAttribute('aRot', new THREE.Float32BufferAttribute(rots,1));
-  geo.setAttribute('aAttach', new THREE.Float32BufferAttribute(attaches,3));
-  geo.userData = { owners };
+  const count = owners.length;
+  const planeGeo = new THREE.PlaneGeometry(1, 1);
+  planeGeo.translate(0, 0.5, 0); // pivot at the leaf base
+  planeGeo.setAttribute('aCol', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
+  planeGeo.setAttribute('aGrowEnd', new THREE.InstancedBufferAttribute(new Float32Array(growEnds), 1));
+  planeGeo.userData = { owners };
+  const leafMesh = new THREE.InstancedMesh(planeGeo, leafMat, count);
+  leafMesh.instanceMatrix.array.set(matrices);
+  leafMesh.instanceMatrix.needsUpdate = true;
+  // Instances span the whole crown; the base quad's bounds would cull them.
+  leafMesh.frustumCulled = false;
 
   let stemGeo = null;
   if(stemPositions.length){
@@ -1075,7 +1089,7 @@ function buildLeaves(root, params, rng){
     stemGeo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(stemGrowEnds,1));
   }
 
-  return { leafGeo: geo, stemGeo };
+  return { leafMesh, stemGeo };
 }
 
 /* ───────── scene ───────── */
@@ -1185,7 +1199,7 @@ function makeLeafMat(){
   return new THREE.ShaderMaterial({
     uniforms:{ uReveal:{value:0}, uMap:{value:leafTex} },
     vertexShader: leafVert, fragmentShader: leafFrag,
-    vertexColors: true, transparent: true, depthWrite: false,
+    transparent: true, depthWrite: true, side: THREE.DoubleSide,
   });
 }
 
@@ -1381,11 +1395,11 @@ function scheduleRegrowth(parent){
 }
 
 function rebuildLeaves(){
-  if(leafPoints){ treeGroup.remove(leafPoints); leafPoints.geometry.dispose(); }
+  if(leafPoints){ treeGroup.remove(leafPoints); leafPoints.geometry.dispose(); leafPoints.dispose(); }
   if(leafStems){ treeGroup.remove(leafStems); leafStems.geometry.dispose(); leafStems = null; }
   const rng2 = new RNG(state.seed + 7777);
-  const { leafGeo, stemGeo } = buildLeaves(root, state, rng2);
-  leafPoints = new THREE.Points(leafGeo, leafMat);
+  const { leafMesh, stemGeo } = buildLeaves(root, state, rng2);
+  leafPoints = leafMesh;
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
   if(stemGeo){
@@ -1404,7 +1418,7 @@ let _selLeafColor = null;
 
 function clearLeafSel(){
   if(_selLeaf < 0 || !leafPoints) return;
-  const ca = leafPoints.geometry.getAttribute('color');
+  const ca = leafPoints.geometry.getAttribute('aCol');
   if(ca && _selLeafColor){
     ca.setXYZ(_selLeaf, _selLeafColor[0], _selLeafColor[1], _selLeafColor[2]);
     ca.needsUpdate = true;
@@ -1421,34 +1435,36 @@ function clearBranchSel(){
 
 function dropSelectedLeaf(){
   if(_selLeaf < 0 || !leafPoints) return;
-  const geo = leafPoints.geometry;
-  const pa = geo.getAttribute('position');
-  const sa = geo.getAttribute('aSize');
   const idx = _selLeaf;
-  const pos = new THREE.Vector3(pa.getX(idx), pa.getY(idx), pa.getZ(idx));
+  const m = new THREE.Matrix4();
+  leafPoints.getMatrixAt(idx, m);
   const origCol = _selLeafColor || [0.3,0.5,0.2];
-  const sz = sa.getX(idx);
-
-  sa.setX(idx, 0);
-  sa.needsUpdate = true;
   clearLeafSel();
 
-  const sm = new THREE.SpriteMaterial({
+  // Spawn a matching free-falling quad in place of the instance.
+  const geo = new THREE.PlaneGeometry(1, 1);
+  geo.translate(0, 0.5, 0);
+  const mat = new THREE.MeshBasicMaterial({
     map: leafTex,
-    color: new THREE.Color(origCol[0], origCol[1], origCol[2]),
-    transparent: true,
+    color: new THREE.Color(
+      Math.pow(origCol[0], .45), Math.pow(origCol[1], .45), Math.pow(origCol[2], .45)),
+    transparent: true, side: THREE.DoubleSide, alphaTest: .12,
   });
-  const sp = new THREE.Sprite(sm);
-  sp.position.copy(pos);
-  const s = Math.max(sz * 0.015, 0.05);
-  sp.scale.set(s, s*1.3, 1);
-  scene.add(sp);
+  const mesh = new THREE.Mesh(geo, mat);
+  m.decompose(mesh.position, mesh.quaternion, mesh.scale);
+  scene.add(mesh);
   fallingDebris.push({
-    mesh: sp,
+    mesh,
     vel: new THREE.Vector3((Math.random()-.5)*.4, 0, (Math.random()-.5)*.4),
-    rot: new THREE.Vector3(0,0,(Math.random()-.5)*2),
+    rot: new THREE.Vector3((Math.random()-.5)*1.5, 0, (Math.random()-.5)*2),
     life: 2.5,
   });
+
+  // Hide the instance by collapsing it to zero scale.
+  const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+  hidden.setPosition(mesh.position);
+  leafPoints.setMatrixAt(idx, hidden);
+  leafPoints.instanceMatrix.needsUpdate = true;
 }
 
 canvas.addEventListener('click', e => {
@@ -1463,7 +1479,6 @@ canvas.addEventListener('click', e => {
 
   let leafHits = [];
   if(leafPoints && state.showLeaves){
-    raycaster.params.Points.threshold = 0.15;
     leafHits = raycaster.intersectObject(leafPoints);
   }
 
@@ -1472,10 +1487,11 @@ canvas.addEventListener('click', e => {
 
   if(leafHits.length && (!branchHits.length || lDist < bDist - 0.5)){
     clearBranchSel();
-    const idx = leafHits[0].index;
+    const idx = leafHits[0].instanceId;
+    if(idx === undefined) return;
     if(_selLeaf === idx){ clearLeafSel(); return; }
     clearLeafSel();
-    const ca = leafPoints.geometry.getAttribute('color');
+    const ca = leafPoints.geometry.getAttribute('aCol');
     _selLeafColor = [ca.getX(idx), ca.getY(idx), ca.getZ(idx)];
     _selLeaf = idx;
     ca.setXYZ(idx, 0.85, 0.12, 0.08);
@@ -1682,8 +1698,8 @@ function rebuild(){
   buildPathMeshes(root, branchMat, treeGroup);
 
   const rng2 = new RNG(state.seed + 7777);
-  const { leafGeo, stemGeo } = buildLeaves(root, state, rng2);
-  leafPoints = new THREE.Points(leafGeo, leafMat);
+  const { leafMesh, stemGeo } = buildLeaves(root, state, rng2);
+  leafPoints = leafMesh;
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
   if(stemGeo){
