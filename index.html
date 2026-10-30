@@ -114,7 +114,14 @@ const PRESETS = {
   Bonsai:          { archetype:'Troll',      maxDepth:5, angle:65, angleSpread:15, lenRatio:.62, trunkLen:1.6, trunkRad:.18, taper:.58, taperCurve:'linear',      bareTrunk:0,   curvature:.7, crownShape:'sphere',   variance:.7, leafDen: 7, leafSz:.1, trunkCol:'#4A3525', tipCol:'#6A5545', leafCol:'#3A6B30', leafShape:'round',  leafArr:'opposite' },
   Baobab:          { archetype:'Scarrone',   maxDepth:4, angle:45, angleSpread:10, lenRatio:.58, trunkLen:3.0, trunkRad:.50, taper:.68, taperCurve:'exponential', bareTrunk:.4,  curvature:.2, crownShape:'umbrella', variance:.4, leafDen:10, leafSz:.1, trunkCol:'#7A6050', tipCol:'#9A8070', leafCol:'#5A8A40', leafShape:'fan',    leafArr:'radial' },
   'Japanese Maple':{ archetype:'Champagnat', maxDepth:6, angle:50, angleSpread:15, lenRatio:.66, trunkLen:2.2, trunkRad:.22, taper:.58, taperCurve:'linear',      bareTrunk:.15, curvature:.5, crownShape:'sphere',   variance:.5, leafDen:16, leafSz:.1, trunkCol:'#3A2A1E', tipCol:'#5C4030', leafCol:'#B02030', leafShape:'maple',  leafArr:'opposite' },
+  'Crepe Myrtle':  { archetype:'Rauh',       maxDepth:5, angle:40, angleSpread:12, lenRatio:.72, trunkLen:2.5, trunkRad:.30, taper:.60, taperCurve:'linear',      bareTrunk:.4,  curvature:.6, crownShape:'umbrella', variance:.5, leafDen:12, leafSz:.1, trunkCol:'#A08878', tipCol:'#8A6E5E', leafCol:'#3E6B2E', leafShape:'round',  leafArr:'opposite',
+                     trunks:5, trunkSpread:18, trunkBaseSpread:.25 },
+  Rhododendron:    { archetype:'Troll',      maxDepth:5, angle:50, angleSpread:15, lenRatio:.70, trunkLen:.8,  trunkRad:.28, taper:.62, taperCurve:'linear',      bareTrunk:.1,  curvature:.5, crownShape:'sphere',   variance:.5, leafDen:10, leafSz:.12, trunkCol:'#5A4A3E', tipCol:'#6E5A4A', leafCol:'#2F5A2A', leafShape:'round',  leafArr:'whorled',
+                     trunks:7, trunkSpread:35, trunkBaseSpread:.4 },
 };
+
+// Multi-trunk settings. Presets that omit them grow a single trunk.
+const TRUNK_DEFAULTS = { trunks:1, trunkSpread:0, trunkBaseSpread:0 };
 
 /* ───────── shaders ───────── */
 
@@ -547,11 +554,14 @@ function taperAtDepth(baseTaper, depth, maxDepth, curve){
 function generateTree(p, rng){
   const MAX_NODES = 3000;
   let count = 0;
+  // Node cap for the trunk being grown; split across trunks so the first
+  // stem can't consume the whole budget.
+  let limit = MAX_NODES;
   const treeH = p.trunkLen * (1 + p.lenRatio * p.maxDepth * 0.55);
   const crownR = treeH * 0.5;
 
   function makeNode(start, dir, len, rad, depth){
-    if(count >= MAX_NODES) return null;
+    if(count >= limit) return null;
     count++;
     const seed = (nodeId * 137 + 42);
     const br = new RNG(seed);
@@ -581,7 +591,7 @@ function generateTree(p, rng){
       ],
     };
     const bareDepth = Math.floor((p.bareTrunk || 0) * p.maxDepth);
-    if(depth < p.maxDepth && count < MAX_NODES){
+    if(depth < p.maxDepth && count < limit){
       if(depth < bareDepth){
         // Bare trunk: single continuation with slight wobble
         const ang = rng.range(0, 5) * DEG;
@@ -609,7 +619,7 @@ function generateTree(p, rng){
           ? (depth % 2) * Math.PI + rng.range(-0.1, 0.1)
           : rng.range(0, Math.PI * 2);
         const la = p.leaderAxis || 0;
-        for(let i = 0; i < n && count < MAX_NODES; i++){
+        for(let i = 0; i < n && count < limit; i++){
           const isLeader = (i === 0 && la > 0);
           const v = p.variance || 0.5;
           const angCenter = p.angle;
@@ -687,11 +697,32 @@ function generateTree(p, rng){
     }
     return node;
   }
-  return makeNode(new THREE.Vector3(0,0,0), UP, p.trunkLen, p.trunkRad, 0);
+
+  const nTrunks = Math.max(1, Math.round(p.trunks || 1));
+  // A single trunk draws no extra random numbers, so existing seeds and
+  // presets reproduce the same tree.
+  if(nTrunks === 1) return [makeNode(new THREE.Vector3(0,0,0), UP, p.trunkLen, p.trunkRad, 0)];
+
+  const trng = new RNG(p.seed + 9191);
+  const roots = [];
+  for(let i = 0; i < nTrunks; i++){
+    limit = count + Math.floor((MAX_NODES - count) / (nTrunks - i));
+    const a = i * GOLDEN_ANGLE + trng.range(-0.3, 0.3);
+    const out = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+    const start = out.clone().multiplyScalar((p.trunkBaseSpread || 0) * trng.range(0.4, 1));
+    const lean = (p.trunkSpread || 0) * trng.range(0.6, 1.2) * DEG;
+    const dir = UP.clone().applyAxisAngle(new THREE.Vector3(out.z, 0, -out.x), lean);
+    // Stems share one trunk's cross-section so the clump isn't oversized.
+    const rad = p.trunkRad / Math.sqrt(nTrunks) * trng.range(0.8, 1.15);
+    const len = p.trunkLen * trng.range(0.8, 1.05);
+    const t = makeNode(start, dir, len, rad, 0);
+    if(t) roots.push(t);
+  }
+  return roots;
 }
 
-function collectBFS(root){
-  const out = [], q = [root];
+function collectBFS(roots){
+  const out = [], q = [...roots];
   while(q.length){ const n=q.shift(); out.push(n); for(const c of n.children) q.push(c); }
   return out;
 }
@@ -770,7 +801,7 @@ function makeNodeGeo(node){
 
 /* ───────── path-based mesh building ───────── */
 
-function findPaths(root){
+function findPaths(roots){
   const paths = [];
   function walk(node){
     if(node.pruned) return;
@@ -784,7 +815,7 @@ function findPaths(root){
     paths.push(path);
     for(const child of cur.children.filter(c => !c.pruned)) walk(child);
   }
-  walk(root);
+  for(const r of roots) walk(r);
   return paths;
 }
 
@@ -881,8 +912,8 @@ function makePathGeo(path){
 let allPaths = [];
 let highlightOverlays = [];
 
-function buildPathMeshes(root, material, group){
-  const paths = findPaths(root);
+function buildPathMeshes(roots, material, group){
+  const paths = findPaths(roots);
   allPaths = [];
   for(const path of paths){
     const geo = makePathGeo(path);
@@ -906,7 +937,7 @@ function buildPathMeshes(root, material, group){
 function rebuildAllPaths(){
   for(const p of allPaths){ treeGroup.remove(p.mesh); p.mesh.geometry.dispose(); }
   allPaths = [];
-  if(root) buildPathMeshes(root, branchMat, treeGroup);
+  if(roots.length) buildPathMeshes(roots, branchMat, treeGroup);
 }
 
 function nodeFromHit(hit){
@@ -1057,7 +1088,7 @@ function getLeafPlacements(node, params, rng, denScale = 1){
   return placements;
 }
 
-function buildLeaves(root, params, rng){
+function buildLeaves(roots, params, rng){
   const matrices=[], colors=[], growEnds=[], owners=[];
   const stemPositions=[], stemGrowEnds=[];
   const lc = new THREE.Color(params.leafCol);
@@ -1157,7 +1188,7 @@ function buildLeaves(root, params, rng){
     }
     for(const c of living) visit(c);
   }
-  visit(root);
+  for(const r of roots) visit(r);
 
   const count = owners.length;
   const planeGeo = new THREE.PlaneGeometry(1, 1);
@@ -1235,7 +1266,7 @@ const treeGroup = new THREE.Group();
 scene.add(treeGroup);
 
 let allNodes = [];
-let root = null;
+let roots = [];
 let leafPoints = null;
 let leafStems = null;
 // Tube tip radius (fraction of node.rad) along each branch spline.
@@ -1251,6 +1282,7 @@ const state = {
   showLeaves: true,
   autoRotate: true,
   renderStyle: 'painterly',
+  ...TRUNK_DEFAULTS,
   ...structuredClone(PRESETS.Oak),
   ...structuredClone(ARCHETYPES[PRESETS.Oak.archetype]),
 };
@@ -1410,7 +1442,7 @@ function updateAllHelpers(){
 /* ───────── growth ───────── */
 
 function updateGrowth(dt){
-  if(!root || !state.playing) return;
+  if(!roots.length || !state.playing) return;
   state.growthTime += dt * state.growSpeed;
 
   if(branchMat) branchMat.uniforms.uGrowTime.value = state.growthTime;
@@ -1508,7 +1540,7 @@ function rebuildLeaves(){
   if(leafPoints){ treeGroup.remove(leafPoints); leafPoints.geometry.dispose(); leafPoints.dispose(); }
   if(leafStems){ treeGroup.remove(leafStems); leafStems.geometry.dispose(); leafStems = null; }
   const rng2 = new RNG(state.seed + 7777);
-  const { leafMesh, stemGeo } = buildLeaves(root, state, rng2);
+  const { leafMesh, stemGeo } = buildLeaves(roots, state, rng2);
   leafPoints = leafMesh;
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
@@ -1803,13 +1835,13 @@ function rebuild(){
   leafStems = null;
 
   const rng = new RNG(state.seed);
-  root = generateTree(state, rng);
-  allNodes = collectBFS(root);
+  roots = generateTree(state, rng).filter(Boolean);
+  allNodes = collectBFS(roots);
 
-  buildPathMeshes(root, branchMat, treeGroup);
+  buildPathMeshes(roots, branchMat, treeGroup);
 
   const rng2 = new RNG(state.seed + 7777);
-  const { leafMesh, stemGeo } = buildLeaves(root, state, rng2);
+  const { leafMesh, stemGeo } = buildLeaves(roots, state, rng2);
   leafPoints = leafMesh;
   leafPoints.visible = state.showLeaves;
   treeGroup.add(leafPoints);
@@ -1834,10 +1866,11 @@ const SAVE_KEYS = [
   'leafDen', 'leafSz', 'trunkCol', 'tipCol', 'leafCol', 'leafShape', 'leafArr',
   'leaderAxis', 'branches', 'branchJitter', 'phyllotaxis', 'branchHorizontalPull',
   'branchRollSnap', 'gravity', 'gravityMode', 'renderStyle',
+  'trunks', 'trunkSpread', 'trunkBaseSpread',
 ];
 
 // Keys added after the preset format shipped; older saves may lack them.
-const OPTIONAL_SAVE_KEYS = ['renderStyle'];
+const OPTIONAL_SAVE_KEYS = ['renderStyle', 'trunks', 'trunkSpread', 'trunkBaseSpread'];
 
 const PRESET_ENUMS = {
   taperCurve: ['linear', 'exponential', 'stepped'],
@@ -1913,7 +1946,7 @@ const archObj = { archetype: PRESETS[state.species].archetype };
 
 gui.add(specObj, 'species', Object.keys(PRESETS)).name('Species').onChange(v => {
   const preset = PRESETS[v];
-  Object.assign(state, structuredClone(preset));
+  Object.assign(state, TRUNK_DEFAULTS, structuredClone(preset));
   Object.assign(state, structuredClone(ARCHETYPES[preset.archetype]));
   state.species = v;
   archObj.archetype = preset.archetype;
@@ -1942,6 +1975,9 @@ const fStruct = gui.addFolder('Structure');
 const structCtrls = [];
 
 const fSize = fStruct.addFolder('Size');
+structCtrls.push(fSize.add(state,'trunks',1,8,1).name('Trunks'));
+structCtrls.push(fSize.add(state,'trunkSpread',0,40,1).name('Trunk Spread'));
+structCtrls.push(fSize.add(state,'trunkBaseSpread',0,.6,.01).name('Base Spread'));
 structCtrls.push(fSize.add(state,'maxDepth',3,8,1).name('Depth'));
 structCtrls.push(fSize.add(state,'lenRatio',.4,.9,.01).name('Length Ratio'));
 structCtrls.push(fSize.add(state,'bareTrunk',0,1,.01).name('Bare Trunk'));
@@ -2018,7 +2054,7 @@ function exportSettings(name = ''){
 
 function applySettings(preset){
   if(!validatePreset(preset)) return false;
-  Object.assign(state, structuredClone(preset.state));
+  Object.assign(state, TRUNK_DEFAULTS, structuredClone(preset.state));
   state.growthTime = 0;
   state.playing = true;
   state.pruneMode = false;
