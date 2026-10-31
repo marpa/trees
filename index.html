@@ -1526,6 +1526,8 @@ function showCPHelpers(node){
   for(const cp of node.controlPoints){
     const m = new THREE.Mesh(cpGeo, cpMat);
     m.position.copy(cpWorldPos(node, cp));
+    const radAtT = node.rad * (1 + (BRANCH_TIP_R - 1) * clamp01(cp.t));
+    m.scale.setScalar(Math.min(Math.max(radAtT * 1.3, 0.04), 0.1) / 0.1);
     m.userData = { type: 'cp', cp, node };
     m.renderOrder = 9999;
     cpGroup.add(m);
