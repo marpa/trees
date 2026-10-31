@@ -756,6 +756,26 @@ function branchEndRadius(node){
   return Math.max(...living.map(c => c.rad));
 }
 
+const _frameQ = new THREE.Quaternion();
+
+/**
+ * Ring orientation for tube building. The first ring picks any perpendicular;
+ * later rings rotate the previous ring's normal by the change in tangent.
+ * Deriving each ring independently from world-up twists near-vertical tubes
+ * (the angle around the tube swings with tiny changes in lean), pinching
+ * them into hourglass waists at joints.
+ */
+function ringNormal(tangent, prevTangent, prevNormal, out){
+  if(!prevTangent){
+    if(Math.abs(tangent.y) < 0.99) out.crossVectors(tangent, UP);
+    else out.crossVectors(tangent, new THREE.Vector3(1,0,0));
+    return out.normalize();
+  }
+  _frameQ.setFromUnitVectors(prevTangent, tangent);
+  out.copy(prevNormal).applyQuaternion(_frameQ);
+  return out.addScaledVector(tangent, -out.dot(tangent)).normalize();
+}
+
 /** Simple per-node tube (local space) — used for highlight overlays and falling debris. */
 function makeNodeGeo(node){
   const hSegs = 12, rSegs = 12;
@@ -763,13 +783,13 @@ function makeNodeGeo(node){
   const verts = [], norms = [], uvs = [], indices = [], growEnds = [];
   const tmp = new THREE.Vector3();
   const rTip = branchEndRadius(node);
+  let prevTangent = null, prevNormal = null;
   for(let j = 0; j <= hSegs; j++){
     const t = j / hSegs;
     const center = spline.getPointAt(t);
     const tangent = spline.getTangentAt(t).normalize();
-    let normal = new THREE.Vector3();
-    if(Math.abs(tangent.y) < 0.99) normal.crossVectors(tangent, UP).normalize();
-    else normal.crossVectors(tangent, new THREE.Vector3(1,0,0)).normalize();
+    const normal = ringNormal(tangent, prevTangent, prevNormal, new THREE.Vector3());
+    prevTangent = tangent; prevNormal = normal;
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
     const radius = THREE.MathUtils.lerp(node.rad, rTip, t);
     for(let i = 0; i <= rSegs; i++){
@@ -842,11 +862,11 @@ function makePathGeo(path){
   for(const n of path) totalLen += n.len;
 
   let ringCount = 0;
+  let prevTangent = null, prevNormal = null;
 
   function addRing(center, tangent, radius, uv_v, growEnd){
-    let normal = new THREE.Vector3();
-    if(Math.abs(tangent.y) < 0.99) normal.crossVectors(tangent, UP).normalize();
-    else normal.crossVectors(tangent, new THREE.Vector3(1,0,0)).normalize();
+    const normal = ringNormal(tangent, prevTangent, prevNormal, new THREE.Vector3());
+    prevTangent = tangent.clone(); prevNormal = normal;
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
     for(let i = 0; i <= rSegs; i++){
       const angle = (i / rSegs) * Math.PI * 2;
