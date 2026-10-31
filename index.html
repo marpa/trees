@@ -263,6 +263,45 @@ void main(){
   gl_FragColor = vec4(uColor, vAlpha);
 }`;
 
+const moundVert = /* glsl */`
+varying vec3 vNormal, vWorldPos;
+varying vec2 vUv;
+void main(){
+  vUv = uv;
+  vNormal = normalize(mat3(modelMatrix) * normal);
+  vec4 wp = modelMatrix * vec4(position, 1.);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+// Same conventions as branchFrag (manual gamma, hand-set light), since the
+// post pass doesn't convert linear output; built-in lit materials render
+// near-black here.
+const moundFrag = /* glsl */`
+uniform vec3 uColor;
+uniform float uWater, uInk;
+varying vec3 vNormal, vWorldPos;
+varying vec2 vUv;
+float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+void main(){
+  vec3 col = pow(max(uColor, 0.), vec3(.45));
+  // Bark-chip mottling: chips vary in darkness and redness, with fine grit.
+  float chip = hash(floor(vWorldPos*22.));
+  float grit = hash(floor(vWorldPos*90.));
+  col *= .7 + chip * .55;
+  col.r *= .95 + hash(floor(vWorldPos*22.) + 7.) * .15;
+  col *= .92 + grit * .16;
+  float diff = max(dot(normalize(vNormal), normalize(vec3(.5,1.,.3))), 0.)*.35 + .7;
+  vec3 paint = col * diff;
+  vec3 wash = mix(vec3(1.), col, .7) * (diff*.3 + .7);
+  // Ink: dense stipple reads as dark mulch against the paper-toned ground.
+  float stipple = step(.72, grit) * .55 + step(.85, chip) * .25;
+  vec3 ink = mix(vec3(.8,.775,.73), vec3(.13,.12,.15), stipple * (1.15 - diff));
+  vec3 outCol = mix(mix(paint, wash, uWater), ink, uInk);
+  // uv.y runs 0 at the rim to 1 at the center; soften only the outer edge.
+  gl_FragColor = vec4(outCol, smoothstep(0., .1, vUv.y));
+}`;
+
 const postVert = /* glsl */`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`;
 
 const postFrag = /* glsl */`
@@ -840,7 +879,7 @@ function findPaths(roots){
 }
 
 function makePathGeo(path){
-  const RINGS = 16, rSegs = 16, GROW_DUR = 0.8;
+  const RINGS = 16, rSegs = 16, GROW_DUR = 0.8, BASE_RINGS = 3;
   const verts = [], norms = [], uvs = [], indices = [], growEnds = [];
   const tmp = new THREE.Vector3();
 
@@ -888,6 +927,17 @@ function makePathGeo(path){
       const tangent = firstNode.dir.clone().lerp(parentDirW.clone(), ct).normalize();
       const radius = THREE.MathUtils.lerp(firstNode.rad, collarBaseR, ct * ct * ct);
       addRing(center, tangent, radius, -ct * 0.01, firstNode.growStart);
+    }
+  } else {
+    // Trunk base: continue the tube below ground so its open end is buried
+    // under the mound instead of showing where a leaning stem meets the soil.
+    // Only the mesh extends; the node's length (which sizes its children)
+    // is unchanged.
+    const sink = firstNode.rad * 1.5;
+    for(let j = 0; j < BASE_RINGS; j++){
+      const center = firstNode.start.clone()
+        .addScaledVector(firstNode.dir, -sink * (1 - j / BASE_RINGS));
+      addRing(center, firstNode.dir, firstNode.rad, 0, firstNode.growStart);
     }
   }
 
@@ -1267,6 +1317,49 @@ const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.position.y = -.01;
 scene.add(ground);
 
+const moundMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uColor: { value: new THREE.Color('#3a2318') },
+    uWater: { value: 0 },
+    uInk: { value: 0 },
+  },
+  vertexShader: moundVert, fragmentShader: moundFrag,
+  transparent: true,
+});
+
+/** Low soil mound over the trunk bases, sized to the clump. Rebuilt with the tree. */
+function makeMound(roots){
+  // Mulch ring: well beyond the trunks (at least 1.5 units out, so thin
+  // multi-stem shrubs still get a generous ring), but kept inside the ground
+  // disc (radius 4).
+  let R = 0, h = 0;
+  for(const r of roots){
+    R = Math.max(R, Math.hypot(r.start.x, r.start.z) + Math.max(r.rad * 8, 1.5));
+    h = Math.max(h, r.rad * 0.9);
+  }
+  if(R <= 0) return null;
+  R = Math.min(R, 3.6);
+  h = Math.min(h, 0.22);
+  // Profile from rim to center: 1 - t⁴ is a broad, nearly flat bed that drops
+  // off near the rim, like spread mulch. Rim-first order makes the faces
+  // front-facing from above (center-first gets them culled).
+  const pts = [];
+  const N = 32;
+  for(let i = N; i >= 0; i--){
+    const t = i / N;
+    pts.push(new THREE.Vector2(t * R, h * (1 - t ** 4)));
+  }
+  const geo = new THREE.LatheGeometry(pts, 64);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, moundMat);
+  // Just above the ground disc (-0.01) so the two don't z-fight, and drawn
+  // after it so the faded rim blends over the ground.
+  mesh.position.y = -0.005;
+  mesh.renderOrder = 1;
+  mesh.raycast = () => {};
+  return mesh;
+}
+
 /* ───────── post processing ───────── */
 
 const composer = new EffectComposer(renderer);
@@ -1361,6 +1454,9 @@ function applyRenderStyle(){
   postPass.uniforms.uStyle.value = s === 'ink' ? 2 : s === 'watercolor' ? 1 : 0;
   groundMat.color.set(s === 'ink' ? '#8e8a80' : '#b8a888');
   groundMat.opacity = s === 'ink' ? .18 : .35;
+  moundMat.uniforms.uColor.value.set(s === 'watercolor' ? '#4e3426' : '#3a2318');
+  moundMat.uniforms.uWater.value = s === 'watercolor' ? 1 : 0;
+  moundMat.uniforms.uInk.value = s === 'ink' ? 1 : 0;
 }
 
 function stemColorFromLeaf(leafColHex){
@@ -1857,6 +1953,8 @@ function rebuild(){
   const rng = new RNG(state.seed);
   roots = generateTree(state, rng).filter(Boolean);
   allNodes = collectBFS(roots);
+  const mound = makeMound(roots);
+  if(mound) treeGroup.add(mound);
 
   buildPathMeshes(roots, branchMat, treeGroup);
 
