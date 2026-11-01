@@ -14,6 +14,14 @@
       border-radius: 20px; font: 14px/1.4 Georgia, serif;
       display: none; pointer-events: none; text-align: center;
     }
+    #exerciseScore {
+      position: fixed; top: 20px; left: 20px; max-width: 300px;
+      background: rgba(60,40,20,0.8); color: #f0e6d2; padding: 10px 16px;
+      border-radius: 14px; font: 14px/1.5 Georgia, serif;
+      display: none; pointer-events: none;
+    }
+    #exerciseScore b { font-weight: normal; color: #ffd28a; }
+    #exerciseScore .feedback { margin-top: 4px; font-style: italic; }
     #canvasControls {
       position: fixed; bottom: 20px; left: 20px;
       display: flex; gap: 8px; align-items: center;
@@ -46,6 +54,7 @@
   <button type="button" id="autoRotateBtn" aria-pressed="true" aria-label="Toggle auto rotate">Auto rotate</button>
 </div>
 <div id="pruneHint">Click to select &middot; Click again to add curve point &middot; Drag yellow to curve, orange to move tip &middot; Shift+click to chain &middot; Delete to prune</div>
+<div id="exerciseScore" aria-live="polite"></div>
 <input type="file" id="presetImport" accept=".json,application/json" hidden>
 <script type="importmap">
 {
@@ -123,16 +132,22 @@ const PRESETS = {
 // Multi-trunk settings. Presets that omit them grow a single trunk.
 const TRUNK_DEFAULTS = { trunks:1, trunkSpread:0, trunkBaseSpread:0 };
 
+// Pruning exercise settings. Not part of species presets, so they carry
+// over when switching species; saved presets that omit them have none.
+const EXERCISE_DEFAULTS = { deadBranches:0, deadLook:'obvious' };
+
 /* ───────── shaders ───────── */
 
 const branchVert = /* glsl */`
 attribute float aGrowEnd;
+attribute float aDead;
 varying vec3 vNormal, vWorldPos;
 varying vec2 vUv;
-varying float vGrowEnd;
+varying float vGrowEnd, vDead;
 void main(){
   vUv = uv;
   vGrowEnd = aGrowEnd;
+  vDead = aDead;
   vNormal = normalize(normalMatrix * normal);
   vec4 wp = modelMatrix * vec4(position,1.0);
   vWorldPos = wp.xyz;
@@ -143,9 +158,12 @@ const branchFrag = /* glsl */`
 uniform vec3 uBase, uTip;
 uniform float uGrowTime;
 uniform float uWater, uInk;
+// uDeadVis: 1 shows dead bark as weathered gray, 0 keeps it bark-colored
+// (harder exercise). uDeadHint tints remaining dead wood for "Reveal".
+uniform float uDeadVis, uDeadHint;
 varying vec3 vNormal, vWorldPos;
 varying vec2 vUv;
-varying float vGrowEnd;
+varying float vGrowEnd, vDead;
 
 float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 
@@ -153,6 +171,11 @@ void main(){
   if(vGrowEnd > uGrowTime + 0.05) discard;
 
   vec3 col = mix(uBase, uTip, vUv.y);
+  // Dead bark: bleached gray with lengthwise checking cracks.
+  float dead = vDead * uDeadVis;
+  float crack = smoothstep(.75, 1., sin(vUv.x * 50.27 + hash(floor(vWorldPos * 4.)) * 3.));
+  vec3 deadCol = vec3(.42,.39,.34) * (.85 + hash(floor(vWorldPos * 14.)) * .3) * (1. - crack * .5);
+  col = mix(col, deadCol, dead);
   col += (hash(vWorldPos*6.0)-.5)*.12;
 
   // Noise can push channels negative; pow of a negative base is NaN.
@@ -189,11 +212,13 @@ void main(){
   float hatchVis = 1.-smoothstep(1.5, 4., fwidth(phase));
   float shadow = 1.-smoothstep(.62, .85, diff);
   float hatch = shadow * smoothstep(.55, .8, stripe) * .55 * hatchVis;
-  float fleck = step(.96, hash(vWorldPos*9.)) * .25;
+  float fleck = step(mix(.96, .8, dead), hash(vWorldPos*9.)) * .25 + crack * dead * .35;
   vec3 ink = mix(paper, inkTone, clamp(outline + hatch + fleck, 0., 1.));
 
   vec3 outCol = mix(paint, wash, uWater);
   outCol = mix(outCol, ink, uInk);
+  // Blue, so it can't be confused with the orange selection highlight.
+  outCol = mix(outCol, vec3(.2,.55,1.) * (diff * .4 + .6), vDead * uDeadHint * .85);
   gl_FragColor = vec4(outCol, 1.);
 }`;
 
@@ -766,6 +791,59 @@ function collectBFS(roots){
   return out;
 }
 
+/**
+ * Pruning exercise: kill `count` side limbs (whole subtrees) chosen from the
+ * seed, so every student loading the same preset gets the same tree. Picks
+ * branches that leave a fork (a clear cut point at the collar), skip the
+ * trunk and scaffold limbs, and never nest one dead limb inside another.
+ * Dead limbs lose some of their finest twigs and the rest are snapped short.
+ * Returns the root node of each dead limb.
+ */
+function markDeadBranches(roots, p, count){
+  if(count <= 0) return [];
+  const rng = new RNG(p.seed + 4242);
+  const bareDepth = Math.floor((p.bareTrunk || 0) * p.maxDepth);
+  // Prefer sizable limbs: twigs near the tips hide inside the foliage.
+  const deepest = Math.max(1, p.maxDepth - 2);
+  const minD = Math.min(Math.max(2, bareDepth + 2), deepest);
+  const maxD = Math.min(deepest, minD + 1);
+  const nodes = collectBFS(roots);
+  const candidates = nodes.filter(n =>
+    n.parent && n.depth >= minD && n.depth <= maxD &&
+    n.parent.children.length >= 2 && n.children.length > 0);
+  const order = candidates.map(n => ({ n, k: rng.random() })).sort((a, b) => a.k - b.k);
+
+  const deadRoots = [];
+  let deadCount = 0;
+  for(const { n } of order){
+    if(deadRoots.length >= count) break;
+    let a = n, nested = false;
+    while(a && !nested){ nested = a.dead; a = a.parent; }
+    if(nested) continue;
+    const sub = collectBFS([n]);
+    if(sub.some(s => s.dead)) continue;
+    // Don't let dead wood take over the tree when it's small.
+    if(sub.length > nodes.length * 0.25 || deadCount + sub.length > nodes.length * 0.4) continue;
+    for(const s of sub) s.dead = true;
+    deadCount += sub.length;
+    deadRoots.push(n);
+  }
+
+  for(const r of deadRoots){
+    for(const s of collectBFS([r])){
+      if(s !== r && !s.children.length && rng.random() < 0.5){
+        s.parent.children = s.parent.children.filter(c => c !== s);
+      }
+    }
+    for(const s of collectBFS([r])){
+      if(s.children.length) continue;
+      s.len *= rng.range(0.35, 0.7);
+      s.end.copy(s.start).addScaledVector(s.dir, s.len);
+    }
+  }
+  return deadRoots;
+}
+
 /* ───────── mesh building ───────── */
 
 function buildNodeSpline(node){
@@ -880,7 +958,7 @@ function findPaths(roots){
 
 function makePathGeo(path){
   const RINGS = 16, rSegs = 16, GROW_DUR = 0.8, BASE_RINGS = 3;
-  const verts = [], norms = [], uvs = [], indices = [], growEnds = [];
+  const verts = [], norms = [], uvs = [], indices = [], growEnds = [], deads = [];
   const tmp = new THREE.Vector3();
 
   const firstNode = path[0];
@@ -903,7 +981,7 @@ function makePathGeo(path){
   let ringCount = 0;
   let prevTangent = null, prevNormal = null;
 
-  function addRing(center, tangent, radius, uv_v, growEnd){
+  function addRing(center, tangent, radius, uv_v, growEnd, dead = 0){
     const normal = ringNormal(tangent, prevTangent, prevNormal, new THREE.Vector3());
     prevTangent = tangent.clone(); prevNormal = normal;
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
@@ -916,6 +994,7 @@ function makePathGeo(path){
       norms.push(n.x, n.y, n.z);
       uvs.push(i / rSegs, uv_v);
       growEnds.push(growEnd);
+      deads.push(dead);
     }
     ringCount++;
   }
@@ -926,7 +1005,7 @@ function makePathGeo(path){
       const center = firstNode.start.clone().addScaledVector(collarBackDirW, collarDepth * ct);
       const tangent = firstNode.dir.clone().lerp(parentDirW.clone(), ct).normalize();
       const radius = THREE.MathUtils.lerp(firstNode.rad, collarBaseR, ct * ct * ct);
-      addRing(center, tangent, radius, -ct * 0.01, firstNode.growStart);
+      addRing(center, tangent, radius, -ct * 0.01, firstNode.growStart, firstNode.dead ? 1 : 0);
     }
   } else {
     // Trunk base: continue the tube below ground so its open end is buried
@@ -957,7 +1036,7 @@ function makePathGeo(path){
       const radius = THREE.MathUtils.lerp(node.rad, rTip, t);
       const uv_v = (accLen + t * node.len) / totalLen;
       const growEnd = node.growStart + t * GROW_DUR;
-      addRing(center, tang, radius, uv_v, growEnd);
+      addRing(center, tang, radius, uv_v, growEnd, node.dead ? 1 : 0);
     }
     accLen += node.len;
   }
@@ -975,6 +1054,7 @@ function makePathGeo(path){
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setAttribute('aGrowEnd', new THREE.Float32BufferAttribute(growEnds, 1));
+  geo.setAttribute('aDead', new THREE.Float32BufferAttribute(deads, 1));
   geo.setIndex(indices);
   return geo;
 }
@@ -1185,6 +1265,14 @@ function buildLeaves(roots, params, rng){
     return [_c.r, _c.g, _c.b];
   }
 
+  const witheredHSL = { h: 0, s: 0, l: 0 };
+  new THREE.Color('#6e5234').getHSL(witheredHSL);
+  function pickWitheredColor(){
+    _c.setHSL(witheredHSL.h + rng.range(-.02, .02), clamp01(witheredHSL.s * rng.range(.7, 1.1)),
+      clamp01(witheredHSL.l * rng.range(.7, 1.3)));
+    return [_c.r, _c.g, _c.b];
+  }
+
   const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
   const _helper = new THREE.Vector3();
   const _m = new THREE.Matrix4();
@@ -1207,7 +1295,7 @@ function buildLeaves(roots, params, rng){
     _m.makeBasis(_x, _y, _z);
     _m.setPosition(base);
     matrices.push(..._m.elements);
-    const [r, g, b] = pickLeafColor();
+    const [r, g, b] = node.dead ? pickWitheredColor() : pickLeafColor();
     colors.push(r, g, b);
     growEnds.push((node.growStart + .8) / (maxGrow*1.1) + rng.range(0,.08));
     owners.push(node);
@@ -1217,9 +1305,12 @@ function buildLeaves(roots, params, rng){
     if(node.pruned) return;
     const living = node.children.filter(c => !c.pruned);
     const isTerminal = living.length === 0;
-    if(node.depth >= params.maxDepth - 1 || isTerminal){
+    // Dead limbs are bare; the subtle look leaves a few withered leaves hanging on.
+    const leafy = !node.dead || params.deadLook === 'subtle';
+    if(leafy && (node.depth >= params.maxDepth - 1 || isTerminal)){
       // Pads bundle several leaves per stem, so thin out the placement count.
-      const placements = getLeafPlacements(node, params, rng, hasStems ? 0.4 : 1);
+      let placements = getLeafPlacements(node, params, rng, hasStems ? 0.4 : 1);
+      if(node.dead) placements = placements.filter(() => rng.random() < 0.3);
       for(const pl of placements){
         if(hasStems){
           const fr = leafFrame(node, pl.t, pl.angle);
@@ -1395,6 +1486,8 @@ const state = {
   showLeaves: true,
   autoRotate: true,
   renderStyle: 'painterly',
+  revealDead: false,
+  ...EXERCISE_DEFAULTS,
   ...TRUNK_DEFAULTS,
   ...structuredClone(PRESETS.Oak),
   ...structuredClone(ARCHETYPES[PRESETS.Oak.archetype]),
@@ -1430,6 +1523,8 @@ function makeBranchMat(base, tip){
       uGrowTime:{value:99},
       uWater:{value: state.renderStyle === 'watercolor' ? 1 : 0},
       uInk:{value: state.renderStyle === 'ink' ? 1 : 0},
+      uDeadVis:{value: state.deadLook === 'subtle' ? 0 : 1},
+      uDeadHint:{value: state.revealDead ? 1 : 0},
     },
     vertexShader: branchVert, fragmentShader: branchFrag,
   });
@@ -1580,6 +1675,54 @@ const mouse = new THREE.Vector2();
 const pruneHint = document.getElementById('pruneHint');
 const fallingDebris = [];
 
+// Pruning exercise: the dead limbs placed by markDeadBranches and a tally of
+// cuts. A clean cut removes a dead limb where it meets live wood; a stub cut
+// goes partway into dead wood; a healthy cut removes living wood.
+let deadRoots = [];
+const exercise = { clean: 0, stubs: 0, live: 0, feedback: '' };
+const exerciseScore = document.getElementById('exerciseScore');
+
+function resetExercise(){
+  exercise.clean = exercise.stubs = exercise.live = 0;
+  exercise.feedback = state.pruneMode ? '' : 'Turn on Prune Mode, select a branch, and press Delete to cut it.';
+  updateExerciseScore();
+}
+
+function updateExerciseScore(){
+  if(!deadRoots.length){ exerciseScore.style.display = 'none'; return; }
+  const removed = deadRoots.filter(r => r.pruned).length;
+  const total = deadRoots.length;
+  const lines = [
+    `Dead branches removed: <b>${removed} of ${total}</b>`,
+    `Clean cuts: <b>${exercise.clean}</b> &middot; Stubs left: <b>${exercise.stubs}</b> &middot; Healthy cuts: <b>${exercise.live}</b>`,
+  ];
+  let feedback = exercise.feedback;
+  if(removed === total){
+    feedback = exercise.live || exercise.stubs
+      ? 'All dead wood is gone. Try again with fewer stubs and no healthy cuts.'
+      : 'All dead wood removed with clean cuts. Well done!';
+  }
+  if(feedback) lines.push(`<div class="feedback">${feedback}</div>`);
+  exerciseScore.innerHTML = lines.join('<br>');
+  exerciseScore.style.display = 'block';
+}
+
+function scoreCut(sel){
+  if(!deadRoots.length) return;
+  if(sel.dead && !sel.parent.dead){
+    exercise.clean++;
+    exercise.feedback = 'Clean cut: dead branch removed at the collar.';
+  } else if(sel.dead){
+    exercise.stubs++;
+    exercise.feedback = 'That left a dead stub. Cut back to where the dead branch meets live wood.';
+  } else {
+    exercise.live++;
+    exercise.feedback = state.deadLook === 'subtle'
+      ? 'That branch was alive. Look for bare twigs and withered brown leaves.'
+      : 'That branch was alive. Look for gray, leafless wood.';
+  }
+}
+
 function getSubtree(node){
   const out = [node];
   const q = [...node.children];
@@ -1592,12 +1735,14 @@ function pruneSelected(){
   const sel = selectedBranches[0];
   if(!sel.parent) return;
   const sub = getSubtree(sel);
+  scoreCut(sel);
 
   for(const n of sub){
     n.pruned = true;
     const geo = makeNodeGeo(n);
     const debrisMat = new THREE.MeshStandardMaterial({
-      color: state.trunkCol, roughness: .9, transparent: true,
+      color: n.dead && state.deadLook !== 'subtle' ? '#8a857c' : state.trunkCol,
+      roughness: .9, transparent: true,
     });
     const m = new THREE.Mesh(geo, debrisMat);
     m.quaternion.setFromUnitVectors(UP, n.dir);
@@ -1617,6 +1762,7 @@ function pruneSelected(){
 
   rebuildAllPaths();
   rebuildLeaves();
+  updateExerciseScore();
 }
 
 function scheduleRegrowth(parent){
@@ -1954,6 +2100,8 @@ function rebuild(){
 
   const rng = new RNG(state.seed);
   roots = generateTree(state, rng).filter(Boolean);
+  deadRoots = markDeadBranches(roots, state, state.deadBranches);
+  resetExercise();
   allNodes = collectBFS(roots);
   const mound = makeMound(roots);
   if(mound) treeGroup.add(mound);
@@ -1986,11 +2134,12 @@ const SAVE_KEYS = [
   'leafDen', 'leafSz', 'trunkCol', 'tipCol', 'leafCol', 'leafShape', 'leafArr',
   'leaderAxis', 'branches', 'branchJitter', 'phyllotaxis', 'branchHorizontalPull',
   'branchRollSnap', 'gravity', 'gravityMode', 'renderStyle',
-  'trunks', 'trunkSpread', 'trunkBaseSpread',
+  'trunks', 'trunkSpread', 'trunkBaseSpread', 'deadBranches', 'deadLook',
 ];
 
 // Keys added after the preset format shipped; older saves may lack them.
-const OPTIONAL_SAVE_KEYS = ['renderStyle', 'trunks', 'trunkSpread', 'trunkBaseSpread'];
+const OPTIONAL_SAVE_KEYS = ['renderStyle', 'trunks', 'trunkSpread', 'trunkBaseSpread',
+  'deadBranches', 'deadLook'];
 
 const PRESET_ENUMS = {
   taperCurve: ['linear', 'exponential', 'stepped'],
@@ -1998,6 +2147,7 @@ const PRESET_ENUMS = {
   gravityMode: ['constant', 'cumulative'],
   leafArr: ['alternate', 'opposite', 'whorled', 'fascicled', 'radial'],
   renderStyle: ['painterly', 'watercolor', 'ink'],
+  deadLook: ['obvious', 'subtle'],
 };
 
 function validatePreset(data){
@@ -2142,7 +2292,27 @@ gui.add(state,'pruneMode').name('Prune Mode').onChange(v => {
     clearLeafSel();
     clearBranchSel();
   }
+  if(v && !exercise.clean && !exercise.stubs && !exercise.live) exercise.feedback = '';
+  updateExerciseScore();
 });
+
+const fExercise = gui.addFolder('Pruning Exercise');
+fExercise.add(state,'deadBranches',0,6,1).name('Dead Branches').onChange(() => rebuild());
+fExercise.add(state,'deadLook',['obvious','subtle']).name('Dead Look').onChange(v => {
+  if(branchMat) branchMat.uniforms.uDeadVis.value = v === 'subtle' ? 0 : 1;
+  rebuildLeaves();
+});
+fExercise.add(state,'revealDead').name('Reveal Dead').onChange(v => {
+  if(branchMat) branchMat.uniforms.uDeadHint.value = v ? 1 : 0;
+});
+fExercise.add({ newExercise(){
+  state.seed = Math.floor(Math.random()*99999);
+  if(!state.deadBranches) state.deadBranches = 3;
+  state.revealDead = false;
+  rebuild();
+  refreshGUI();
+}}, 'newExercise').name('New Exercise');
+fExercise.close();
 gui.add(state,'showLeaves').name('Show Leaves').onChange(v => {
   if(v) rebuildLeaves();
   if(leafPoints) leafPoints.visible = v;
@@ -2174,7 +2344,8 @@ function exportSettings(name = ''){
 
 function applySettings(preset){
   if(!validatePreset(preset)) return false;
-  Object.assign(state, TRUNK_DEFAULTS, structuredClone(preset.state));
+  Object.assign(state, TRUNK_DEFAULTS, EXERCISE_DEFAULTS, structuredClone(preset.state));
+  state.revealDead = false;
   state.growthTime = 0;
   state.playing = true;
   state.pruneMode = false;
