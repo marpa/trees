@@ -2121,6 +2121,7 @@ function rebuild(){
   }
 
   controls.target.set(0, state.trunkLen * 1.2, 0);
+  syncURL();
 }
 
 /* ───────── saved presets ───────── */
@@ -2499,6 +2500,133 @@ document.getElementById('presetImport').addEventListener('change', e => {
   reader.readAsText(file);
 });
 
+/* ───────── URL parameters ───────── */
+
+// Settings can be shared as query parameters, e.g.
+//   ?species=Oak&seed=1234&deadBranches=4&deadLook=subtle
+// The species (and optional archetype) load first, then any other SAVE_KEYS
+// override them. Colors are written without '#'. The address bar is kept in
+// sync, listing only the species, seed, and settings that differ from the
+// species defaults.
+
+const URL_UI_DEFAULTS = { growSpeed: 1, showLeaves: true, autoRotate: true, renderStyle: 'painterly' };
+
+function findKeyCI(obj, raw){
+  if(raw == null) return null;
+  const lower = raw.toLowerCase();
+  return Object.keys(obj).find(k => k.toLowerCase() === lower) || null;
+}
+
+function sliderRanges(){
+  const ranges = {};
+  for(const c of gui.controllersRecursive()){
+    if(c.object === state && typeof c._min === 'number' && typeof c._max === 'number'){
+      ranges[c.property] = { min: c._min, max: c._max, step: c._step };
+    }
+  }
+  return ranges;
+}
+
+function applyURLParams(){
+  const q = new URLSearchParams(location.search);
+  if(![...q.keys()].length) return;
+
+  const species = findKeyCI(PRESETS, q.get('species'));
+  if(species){
+    const p = PRESETS[species];
+    Object.assign(state, TRUNK_DEFAULTS, structuredClone(p), structuredClone(ARCHETYPES[p.archetype]));
+    state.species = specObj.species = species;
+    archObj.archetype = p.archetype;
+  }
+  const arch = findKeyCI(ARCHETYPES, q.get('archetype'));
+  if(arch){
+    Object.assign(state, structuredClone(ARCHETYPES[arch]));
+    archObj.archetype = arch;
+  }
+
+  const ranges = sliderRanges();
+  for(const k of SAVE_KEYS){
+    if(k === 'species' || !q.has(k)) continue;
+    const raw = q.get(k).trim();
+    const cur = state[k];
+    if(k === 'seed'){
+      const v = Math.floor(Number(raw));
+      if(Number.isFinite(v) && v >= 0) state.seed = v;
+    } else if(typeof cur === 'number'){
+      let v = Number(raw);
+      if(!raw || !Number.isFinite(v)) continue;
+      const r = ranges[k];
+      if(r){
+        v = Math.min(Math.max(v, r.min), r.max);
+        if(r.step >= 1) v = Math.round(v);
+      }
+      state[k] = v;
+    } else if(typeof cur === 'boolean'){
+      if(/^(1|true|yes|on)$/i.test(raw)) state[k] = true;
+      else if(/^(0|false|no|off)$/i.test(raw)) state[k] = false;
+    } else if(PRESET_ENUMS[k]){
+      const v = PRESET_ENUMS[k].find(e => e.toLowerCase() === raw.toLowerCase());
+      if(v) state[k] = v;
+    } else if(/^#?[0-9a-f]{6}$/i.test(raw)){
+      state[k] = '#' + raw.replace('#', '').toUpperCase();
+    }
+  }
+  controls.autoRotate = state.autoRotate;
+  updateAutoRotateButton();
+}
+
+function formatURLValue(v){
+  if(typeof v === 'boolean') return v ? '1' : '0';
+  if(typeof v === 'number') return String(Number(v.toFixed(4)));
+  if(typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) return v.slice(1).toUpperCase();
+  return String(v);
+}
+
+function sameValue(a, b){
+  if(typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-6;
+  if(typeof a === 'string' && typeof b === 'string') return a.toLowerCase() === b.toLowerCase();
+  return a === b;
+}
+
+function settingsURL(){
+  const preset = PRESETS[state.species];
+  const defaults = {
+    ...URL_UI_DEFAULTS, ...EXERCISE_DEFAULTS, ...TRUNK_DEFAULTS,
+    ...preset, ...ARCHETYPES[archObj.archetype],
+  };
+  const q = new URLSearchParams();
+  q.set('species', state.species);
+  q.set('seed', String(state.seed));
+  if(archObj.archetype !== preset.archetype) q.set('archetype', archObj.archetype);
+  for(const k of SAVE_KEYS){
+    if(k === 'species' || k === 'seed' || !(k in state)) continue;
+    if(k in defaults && sameValue(state[k], defaults[k])) continue;
+    q.set(k, formatURLValue(state[k]));
+  }
+  return `${location.pathname}?${q.toString()}${location.hash}`;
+}
+
+function syncURL(){
+  const next = settingsURL();
+  if(next !== location.pathname + location.search + location.hash){
+    history.replaceState(null, '', next);
+  }
+}
+
+gui.onFinishChange(syncURL);
+autoRotateBtn.addEventListener('click', syncURL);
+
+fPresets.add({ copyLink(){
+  syncURL();
+  const link = location.href;
+  const done = () => window.alert('Link copied. Anyone who opens it gets this exact tree.');
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(link).then(done, () => window.prompt('Copy this link:', link));
+  } else {
+    window.prompt('Copy this link:', link);
+  }
+}}, 'copyLink').name('Copy Link');
+
 /* ───────── animate ───────── */
 
 const clock = new THREE.Clock();
@@ -2541,7 +2669,9 @@ window.addEventListener('resize', () => {
 
 /* ───────── go ───────── */
 
+applyURLParams();
 rebuild();
+refreshGUI();
 animate();
 
 </script>
